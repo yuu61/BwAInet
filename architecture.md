@@ -170,7 +170,7 @@ set firewall options interface wg0 adjust-mss clamp-mss-to-pmtu
 | 会場 VyOS → VGW | AS65001 | primary |
 | 自宅 VyOS → VGW | AS65002 | backup |
 
-GCP VGW (AS64512) との Site-to-Site VPN で、GCE 上のサービス (Grafana, DNS standby, DHCP standby, rsyslog) に接続。
+GCP VGW (AS64512) との Site-to-Site VPN で、GCE 上のサービス (Grafana, rsyslog) に接続。
 
 ## DNS / DHCP (VyOS 統一構成)
 
@@ -197,7 +197,7 @@ DNS・DHCP を VyOS (r3) に統合し、別サーバー + GCE 冗長構成を廃
 |---------|------|------|
 | DNS / DHCP | VyOS (r3) | 名前解決 / IP 配布 |
 | Grafana | Local Server (local) / GCE (active, 外部公開) | 監視ダッシュボード |
-| rsyslog | Local Server → GCE → S3 | ログ集約・アーカイブ |
+| rsyslog | Local Server → GCE → GCS | ログ集約・アーカイブ |
 | nfcapd | Local Server | NetFlow 収集 |
 
 ## 通信ログ保存 (法執行機関対応)
@@ -206,7 +206,7 @@ DNS・DHCP を VyOS (r3) に統合し、別サーバー + GCE 冗長構成を廃
 
 | ログ種別 | 記録元 | 収集先 | 保存期間 |
 |---------|--------|--------|---------|
-| NetFlow v9 (5-tuple) | VyOS flow-accounting | nfcapd → GCE → S3 | 180 日 |
-| DNS クエリログ | VyOS dns forwarding | rsyslog → GCE → S3 | 180 日 |
-| DHCP forensic log | VyOS dhcp-server (Kea hook) | rsyslog → GCE → S3 | 180 日 |
-| NDP テーブルダンプ | VyOS cron (1 分間隔) | rsyslog → GCE → S3 | 180 日 |
+| NetFlow v9 (5-tuple) | VyOS flow-accounting | nfcapd → GCE → GCS | 180 日 |
+| DNS クエリログ | VyOS dns forwarding | rsyslog → GCE → GCS | 180 日 |
+| DHCP forensic log | VyOS dhcp-server (Kea hook) | rsyslog → GCE → GCS | 180 日 |
+| NDP テーブルダンプ | VyOS cron (1 分間隔) | rsyslog → GCE → GCS | 180 日 |

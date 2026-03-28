@@ -10,6 +10,27 @@
 - 通信メタデータ (誰が・いつ・どこと) のみを記録
 - 全ログを相互に紐付けて追跡可能にする
 - 保存期間: **180 日**
+- 利用規約 (AUP) で通信記録の取得を告知し、公序良俗に反する通信を禁止する
+
+### 利用規約 (Acceptable Use Policy)
+
+ネットワーク接続時に以下を告知する (SSID 名の掲示、会場案内等):
+
+1. 本ネットワークの通信メタデータ (接続先・時刻・通信量等) は運営により記録される
+2. 公序良俗に反する通信を禁止する
+3. 法執行機関からの正当な要請があった場合、記録を提出する場合がある
+4. 本ネットワークの利用をもって上記に同意したものとみなす
+
+### ランダム MAC アドレスへの対応方針
+
+iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム MAC を使用するが、**per-SSID 固定** (同一 SSID に接続中は同じランダム MAC を維持) であるため、イベント期間中のログ相関には影響しない。
+
+人物特定については:
+- DHCP hostname ("〇〇のiPhone" 等) + ランダム MAC + IP + 通信時刻を記録として保持
+- それ以上の人物特定 (ランダム MAC → 物理デバイス → 所有者) が必要な場合は捜査機関側の権限で対応
+- 参加者はエンジニアが中心でありリテラシーが高いため、Captive Portal / 802.1X による本人確認は行わない
+
+※ Cisco AireOS 8.10 には LAA Mac Denial 機能があるが、iOS/Android の大半をブロックするため使用しない。
 
 ### 記録対象と非記録対象
 
@@ -18,7 +39,7 @@
 | 5-tuple (src/dst IP, src/dst port, protocol) | IP ペイロード (通信内容) |
 | タイムスタンプ, バイト数, パケット数 | HTTP URL / ヘッダ / ボディ |
 | DNS クエリ名 (qname) + 応答コード | DNS 応答レコード値 |
-| DHCP リース (IP ↔ MAC ↔ hostname) | |
+| DHCP リース (IP ↔ MAC ↔ hostname) | ユーザー個人の認証情報 |
 | NDP テーブル (IPv6 ↔ MAC) | |
 
 ## 2. ログ相関モデル
@@ -40,7 +61,9 @@
 
 ### 共通結合キー
 
-**タイムスタンプ + IP アドレス + MAC アドレス**
+**タイムスタンプ + IP アドレス + MAC アドレス (ランダム MAC 含む)**
+
+ランダム MAC であっても per-SSID 固定のため、イベント期間中は一意のデバイス識別子として機能する。hostname ("〇〇のiPhone" 等) が補助的な識別情報となる。
 
 ### 追跡例
 
@@ -49,6 +72,7 @@
 1. DNS クエリログから `example.com` を引いた client IP を特定
 2. NetFlow から当該 IP の通信フローを確認
 3. DHCP リースログ / NDP ダンプから IP → MAC → hostname を特定
+4. ※ MAC がランダムでも hostname + MAC + 時刻帯の組み合わせで捜査機関に提供可能
 
 ## 3. VyOS DNS Forwarding 設定
 
@@ -249,7 +273,7 @@ WantedBy=multi-user.target
 - `-T all` — 全拡張フィールドを記録
 - `-t 300` — 5 分間隔でファイルローテーション
 
-## 9. 転送・アーカイブ (rsyslog → GCE → S3)
+## 9. 転送・アーカイブ (rsyslog → GCE → GCS)
 
 ### rsyslog 転送設定 (VyOS → Local Server → GCE)
 
@@ -270,24 +294,149 @@ set system syslog host 192.168.11.10 facility all level info
 */15 * * * * rsync -az /var/log/nfcapd/ <gce-user>@<gce-ip>:/var/log/nfcapd/
 ```
 
-### S3 ライフサイクルポリシー
+### GCS 保存先
 
-```json
-{
-    "Rules": [
-        {
-            "ID": "log-retention-180d",
-            "Status": "Enabled",
-            "Filter": { "Prefix": "logs/" },
-            "Expiration": { "Days": 180 }
-        }
-    ]
-}
+ログは保持ポリシー (Retention Policy) 付きの `bwai-compliance-logs` バケットに保存 (180 日保持、ロック済み)。詳細はセクション 10「ログ封印」を参照。
+
+## 10. イベント終了後のログ封印
+
+イベント終了後、ログファイルの改ざんがないことを証明するため、全ログのハッシュを取得し複数人で保存する。
+
+### 封印スクリプト (`/config/scripts/seal-logs.sh`)
+
+```bash
+#!/bin/bash
+# イベント終了後に実行: 全ログの SHA-256 ハッシュを生成
+SEAL_DATE=$(date -u +"%Y%m%dT%H%M%SZ")
+SEAL_FILE="/var/log/log-seal-${SEAL_DATE}.txt"
+
+echo "=== BwAI Network Log Seal ===" > "$SEAL_FILE"
+echo "Sealed at: ${SEAL_DATE}" >> "$SEAL_FILE"
+echo "Sealed by: $(whoami)@$(hostname)" >> "$SEAL_FILE"
+echo "" >> "$SEAL_FILE"
+
+# NetFlow
+echo "--- NetFlow (nfcapd) ---" >> "$SEAL_FILE"
+find /var/log/nfcapd -type f -name "nfcapd.*" | sort | while read -r f; do
+    sha256sum "$f" >> "$SEAL_FILE"
+done
+
+# DNS クエリログ
+echo "--- DNS query log ---" >> "$SEAL_FILE"
+sha256sum /var/log/syslog* 2>/dev/null | grep -v "No such" >> "$SEAL_FILE"
+
+# DHCP forensic log
+echo "--- DHCP forensic log ---" >> "$SEAL_FILE"
+find /var/log/kea -type f -name "kea-legal*" | sort | while read -r f; do
+    sha256sum "$f" >> "$SEAL_FILE"
+done
+
+# NDP ダンプ (syslog 内)
+echo "--- Seal file hash ---" >> "$SEAL_FILE"
+# 封印ファイル自体のハッシュ (最終行を除く) を表示
+sha256sum "$SEAL_FILE"
 ```
 
-## 10. 保存期間とローテーション
+### 封印手順
 
-| ログ種別 | ローカル保存 | GCE 保存 | S3 保存 |
+1. **イベント終了直後**に封印スクリプトを実行
+2. 生成された封印ファイル (`log-seal-<timestamp>.txt`) の **SHA-256 ハッシュ**を取得
+3. ハッシュを**複数の NOC メンバー** (最低 2 名) がそれぞれ独立に保存
+   - 個人の端末にテキストファイルとして保存
+   - チャット (Slack / Discord 等) に投稿して記録
+   - 写真撮影 (物理的な記録) も有効
+4. RFC 3161 タイムスタンプを取得 (後述)
+5. 封印ファイル + タイムスタンプ応答を GCS 保持ポリシー付きバケットにアップロード
+
+### RFC 3161 タイムスタンプ (TSA)
+
+信頼された第三者機関 (TSA: Time-Stamping Authority) が封印ファイルに対して署名付きタイムスタンプを発行する。電子署名法において法的効力があり、「この時点でこのデータが存在した」ことを第三者が証明できる。
+
+```bash
+# タイムスタンプ要求の生成
+openssl ts -query -data /var/log/log-seal-${SEAL_DATE}.txt \
+    -no_nonce -sha256 -cert -out seal.tsq
+
+# TSA にタイムスタンプを要求 (FreeTSA.org: 無料)
+curl -s -H "Content-Type: application/timestamp-query" \
+    --data-binary @seal.tsq \
+    https://freetsa.org/tsr -o seal.tsr
+
+# タイムスタンプの検証
+openssl ts -verify -data /var/log/log-seal-${SEAL_DATE}.txt \
+    -in seal.tsr \
+    -CAfile freetsa-cacert.pem \
+    -untrusted freetsa-tsa.crt
+```
+
+※ FreeTSA.org の CA 証明書は事前にダウンロードしておくこと:
+
+```bash
+wget https://freetsa.org/files/cacert.pem -O freetsa-cacert.pem
+wget https://freetsa.org/files/tsa.crt -O freetsa-tsa.crt
+```
+
+### GCS Retention Policy (WORM)
+
+ログアーカイブ用の GCS バケットに保持ポリシー (Retention Policy) を設定し、保持期間中はオブジェクトの削除・上書きを物理的に不可能にする。ポリシーをロックすると、ポリシー自体の削除・短縮も不可能になる。
+
+```bash
+# バケット作成
+gcloud storage buckets create gs://bwai-compliance-logs \
+    --location=asia-northeast1
+
+# 保持ポリシー設定 (180 日 = 15552000 秒)
+gcloud storage buckets update gs://bwai-compliance-logs \
+    --retention-period=15552000
+
+# ポリシーをロック (不可逆: ロック後はポリシーの削除・短縮不可)
+gcloud storage buckets update gs://bwai-compliance-logs \
+    --lock-retention-period
+```
+
+ロック後はプロジェクトオーナーでも保持期間中のオブジェクト削除は不可能。
+
+### 封印後のアップロード
+
+```bash
+# 封印ファイル + TSA 応答を保持ポリシー付きバケットにアップロード
+gcloud storage cp /var/log/log-seal-${SEAL_DATE}.txt gs://bwai-compliance-logs/seal/
+gcloud storage cp seal.tsr gs://bwai-compliance-logs/seal/
+gcloud storage cp seal.tsq gs://bwai-compliance-logs/seal/
+```
+
+### 正当性証明の三層構造
+
+| 層 | 手法 | 証明できること |
+|---|---|---|
+| 1. 人的証人 | SHA-256 ハッシュを複数 NOC メンバーが独立保存 | 封印時点のハッシュが合意されていたこと |
+| 2. 第三者証明 | RFC 3161 TSA タイムスタンプ | 封印ファイルが特定時刻に存在し、以降改変されていないこと |
+| 3. 物理的保護 | GCS Retention Policy (ロック済み) | ログ本体が保持期間中に削除・改変されていないこと |
+
+### 検証方法
+
+照会時にログの改ざんがないことを証明する:
+
+```bash
+# 1. 封印ファイルのハッシュを再計算し、NOC メンバーの保存済みハッシュと照合
+sha256sum /var/log/log-seal-*.txt
+
+# 2. 個別ログファイルのハッシュを封印ファイルの記録と照合
+sha256sum /var/log/nfcapd/nfcapd.202608101430 | diff - <(grep "nfcapd.202608101430" /var/log/log-seal-*.txt)
+
+# 3. TSA タイムスタンプの検証 (封印ファイルが TSA 署名時点から無改変)
+openssl ts -verify -data /var/log/log-seal-*.txt -in seal.tsr \
+    -CAfile freetsa-cacert.pem -untrusted freetsa-tsa.crt
+
+# 4. GCS Retention Policy の保持状態を確認
+gcloud storage objects describe gs://bwai-compliance-logs/seal/log-seal-*.txt \
+    --format="value(retentionExpirationTime)"
+# → 保持期限の日時が表示される
+```
+
+## 11. 保存期間とローテーション
+
+| ログ種別 | ローカル保存 | GCE 保存 | GCS 保存 |
 |---|---|---|---|
 | NetFlow (nfcapd) | 30 日 | 90 日 | 180 日 |
 | DNS クエリログ | 30 日 | 90 日 | 180 日 |
@@ -307,7 +456,7 @@ set system syslog host 192.168.11.10 facility all level info
 }
 ```
 
-## 11. 照会対応手順
+## 12. 照会対応手順
 
 ### nfdump による NetFlow 検索
 
