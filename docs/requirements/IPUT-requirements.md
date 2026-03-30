@@ -1,7 +1,7 @@
 # IPUT 会場側への要求事項
 
 > BwAI in Kwansai 2026 の会場ネットワーク構築にあたり、IPUT 側に確認・依頼が必要な事項をまとめる。
-> 2026-03-24 の下見時パケットキャプチャ解析（[解析レポート](iput-pcapng-analysis-report.md)）の結果に基づく。
+> 2026-03-24 の下見時パケットキャプチャ解析（[解析レポート](../investigation/iput-pcapng-analysis-report.md)）の結果に基づく。
 
 ---
 

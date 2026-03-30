@@ -98,6 +98,27 @@ WiFi:
 - **WiFi 運営**: WLC が優先キューを割り当て
 - **有線接続 (運営/配信)**: WLC を経由しないため QoS 制限なし。有線で接続するだけで実質的に最高優先度
 
+## 会場 Proxmox サーバー設計
+
+詳細は [`venue-proxmox.md`](venue-proxmox.md) を参照。
+
+### 概要
+
+会場側のネットワーク機能を Dell OptiPlex 3070 Micro 上の Proxmox VE で仮想化し、運搬機材を 1 台に集約する。
+
+| VM/CT | 役割 | リソース |
+|-------|------|---------|
+| r3-vyos (VM) | ルーター、DNS/DHCP、BGP、NetFlow | 2 vCPU, 2GB RAM |
+| softether (CT) | SoftEther クライアント (プロキシ経由トンネル) | 1 vCPU, 512MB RAM |
+| local-srv (CT) | Grafana, rsyslog, nfcapd, SNMP Exporter | 2 vCPU, 2–4GB RAM |
+
+| NIC | チップ | 役割 |
+|-----|--------|------|
+| オンボード | Realtek RTL8111H (1GbE) | トランク → PoE スイッチ |
+| 外付け | USB 2.5GbE (テープ固縛) | アップリンク → blackbox |
+
+SoftEther CT は VyOS の前段 (アップリンク側) に配置し、プロキシ環境時に WireGuard over SoftEther を実現する。プロキシ解除時は SoftEther CT を経由せず WireGuard 直接接続に切り替える。
+
 ## 自宅 VyOS (r1) 設計
 
 詳細は [`home-vyos.md`](home-vyos.md) を参照。

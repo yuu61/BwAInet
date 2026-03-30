@@ -135,6 +135,13 @@ set nat source rule 100 translation address masquerade
 旧サーバー (.9) は VyOS に置き換わったため、SoftEther / iperf3 はメインPC (.4) で稼働させる。
 SSH と WireGuard は VyOS 自身が終端するため DNAT 不要 (WAN-LOCAL で許可)。
 
+#### SoftEther サーバー (メインPC 192.168.10.4)
+
+自宅側は VPN の**受信側**であり、SoftEther サーバーを r1 配下のメインPC で稼働させる。会場側の SoftEther クライアント (Proxmox CT) がプロキシ CONNECT 経由で TCP 443 に接続し、L2 トンネルを確立する。詳細は [`venue-proxmox.md`](venue-proxmox.md) を参照。
+
+- TCP 80/443 → 192.168.10.4 に DNAT (下記ルール 20, 30)
+- プロキシ解除時は SoftEther 不使用 (WireGuard 直接接続)
+
 ```
 set nat destination rule 20 description 'SoftEther-HTTP'
 set nat destination rule 20 inbound-interface name pppoe0
@@ -166,16 +173,16 @@ set nat destination rule 50 translation address 192.168.10.4
 IX3315 の `ip napt hairpinning` と同等。LAN 内から自宅のグローバル IP 宛にアクセスした場合、内部の DNAT 先に正しく転送されるようにする。
 
 ```
-set nat destination rule 110 description 'Hairpin-SSH'
+set nat destination rule 110 description 'Hairpin-SoftEther-HTTP'
 set nat destination rule 110 inbound-interface name br0
 set nat destination rule 110 protocol tcp
-set nat destination rule 110 destination port 22
+set nat destination rule 110 destination port 80
 set nat destination rule 110 destination address <pppoe0-address>
-set nat destination rule 110 translation address 192.168.10.9
+set nat destination rule 110 translation address 192.168.10.4
 
 set nat source rule 110 outbound-interface name br0
 set nat source rule 110 source address 192.168.10.0/24
-set nat source rule 110 destination address 192.168.10.9
+set nat source rule 110 destination address 192.168.10.4
 set nat source rule 110 translation address masquerade
 
 # 他のヘアピンルールも同様のパターンで追加
@@ -224,15 +231,15 @@ set firewall ipv4 name WAN-LAN rule 10 state related
 
 set firewall ipv4 name WAN-LAN rule 20 action accept
 set firewall ipv4 name WAN-LAN rule 20 state new
-set firewall ipv4 name WAN-LAN rule 20 destination address 192.168.10.9
-set firewall ipv4 name WAN-LAN rule 20 protocol tcp_udp
-set firewall ipv4 name WAN-LAN rule 20 destination port 22,80,443,5201
+set firewall ipv4 name WAN-LAN rule 20 destination address 192.168.10.4
+set firewall ipv4 name WAN-LAN rule 20 protocol tcp
+set firewall ipv4 name WAN-LAN rule 20 destination port 80,443,5201
 
 set firewall ipv4 name WAN-LAN rule 30 action accept
 set firewall ipv4 name WAN-LAN rule 30 state new
-set firewall ipv4 name WAN-LAN rule 30 destination address 192.168.10.9
+set firewall ipv4 name WAN-LAN rule 30 destination address 192.168.10.4
 set firewall ipv4 name WAN-LAN rule 30 protocol udp
-set firewall ipv4 name WAN-LAN rule 30 destination port 51820
+set firewall ipv4 name WAN-LAN rule 30 destination port 5201
 ```
 
 ### IPv6 ファイアウォール
