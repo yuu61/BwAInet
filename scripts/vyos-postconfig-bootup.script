@@ -1,0 +1,10 @@
+#!/bin/bash
+# /config/scripts/vyos-postconfig-bootup.script
+# VyOS の全サービス起動完了後に実行される
+
+# DHCPv4 サーバーの遅延起動
+sleep 10
+systemctl restart isc-kea-dhcp4-server
+
+# chrony の再起動 (DNS forwarding 起動前に chrony が起動すると NTP サーバー名が解決できない)
+systemctl restart chrony

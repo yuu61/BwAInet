@@ -130,7 +130,7 @@ SoftEther CT は VyOS の前段 (アップリンク側) に配置し、プロキ
 | 機能 | 設定 |
 |------|------|
 | WAN | PPPoE (OPTAGE) → pppoe0 |
-| LAN | br0 (eth1–eth4): 192.168.10.1/24 |
+| LAN | br0 (eth0, eth2): 192.168.10.1/24 |
 | DHCP | 192.168.10.3–199, 固定割り当て 3 台 |
 | DNS | フォワーディング (192.168.10.1) |
 | NAT | source masquerade + destination (→.9: SSH/HTTP/HTTPS/iperf3/WireGuard) |
