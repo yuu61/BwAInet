@@ -165,7 +165,7 @@ delete protocols static route 0.0.0.0/0 next-hop <vmbr0 側 GW>
 commit
 
 # 3. WireGuard endpoint を変更
-set interfaces wireguard wg0 peer <pubkey> endpoint '<SoftEther tap 対向 IP>:51820'
+set interfaces wireguard wg0 peer r1 endpoint '<SoftEther tap 対向 IP>:51820'
 commit
 ```
 

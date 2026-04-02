@@ -78,6 +78,20 @@ set interfaces wireguard wg0 peer r1 allowed-ips 0.0.0.0/0
 set interfaces wireguard wg0 peer r1 allowed-ips ::/0
 set interfaces wireguard wg0 peer r1 endpoint '<自宅グローバルIP>:51820'
 set interfaces wireguard wg0 peer r1 persistent-keepalive 25
+
+# WireGuard (GCP r2-gcp)
+set interfaces wireguard wg1 address 10.255.2.1/30
+set interfaces wireguard wg1 mtu 1380
+set interfaces wireguard wg1 port 51821
+set interfaces wireguard wg1 private-key <r3-private-key>
+set interfaces wireguard wg1 description 'VPN to GCP (r2-gcp)'
+set interfaces wireguard wg1 peer r2-gcp public-key <r2-public-key>
+set interfaces wireguard wg1 peer r2-gcp allowed-ips 10.255.2.2/32
+set interfaces wireguard wg1 peer r2-gcp allowed-ips 10.255.1.0/30
+set interfaces wireguard wg1 peer r2-gcp allowed-ips 192.168.10.0/24
+set interfaces wireguard wg1 peer r2-gcp address 34.97.94.203
+set interfaces wireguard wg1 peer r2-gcp port 51821
+set interfaces wireguard wg1 peer r2-gcp persistent-keepalive 25
 ```
 
 ## 2. DHCP サーバー (v4)
@@ -224,24 +238,51 @@ proxy wg0 {
 
 ## 6. BGP
 
-自宅 r1 (AS65002) との eBGP セッション。会場サブネットを広告し、デフォルトルートを受信する。
+### ピアリング
 
-| パラメータ | 値 |
-|-----------|-----|
-| ローカル AS | 65001 |
-| ピア | 10.255.0.1 (r1) |
-| ピア AS | 65002 |
+| ピア | アドレス | AS | インターフェース | 用途 |
+|------|---------|-----|-----------------|------|
+| r1-home | 10.255.0.1 | 65002 | wg0 | 自宅との直接接続 |
+| r2-gcp | 10.255.2.2 | 64512 | wg1 | GCP トランジット |
+
+### 広告・受信
+
+| 方向 | 経路 |
+|------|------|
 | 広告 | 192.168.11.0/24, 192.168.30.0/24, 192.168.40.0/22 |
-| 受信 | 0.0.0.0/0 (デフォルトルート) |
-| eBGP distance | 20 (DHCP default route AD210 より優先) |
+| 受信 (r1) | 0.0.0.0/0 (デフォルトルート) |
+| 受信 (r2-gcp) | r1 経由の経路 (GCP トランジット、フォールバック) + GCE サブネット |
+
+### 経路優先度制御
+
+WireGuard 直接リンク (r1) を優先し、r2-gcp 経由をフォールバックにする。AS path 長 (2 hop vs 3 hop) で自然に選択されるが、確実性のため local-preference を併用する。
 
 ```
 # === BGP ===
 
 set protocols bgp system-as 65001
+
+# --- r1 (WireGuard 直接) ---
 set protocols bgp neighbor 10.255.0.1 remote-as 65002
 set protocols bgp neighbor 10.255.0.1 description 'Home router (r1)'
 set protocols bgp neighbor 10.255.0.1 address-family ipv4-unicast
+set protocols bgp neighbor 10.255.0.1 address-family ipv4-unicast route-map import WG-IN
+
+# --- r2-gcp (GCP トランジット) ---
+set protocols bgp neighbor 10.255.2.2 remote-as 64512
+set protocols bgp neighbor 10.255.2.2 description 'r2-gcp'
+set protocols bgp neighbor 10.255.2.2 address-family ipv4-unicast
+set protocols bgp neighbor 10.255.2.2 address-family ipv4-unicast route-map import GCP-IN
+
+# --- Route Map ---
+
+# WireGuard 直接: local-pref 200 (優先)
+set policy route-map WG-IN rule 10 action permit
+set policy route-map WG-IN rule 10 set local-preference 200
+
+# GCP 経由: local-pref 50 (フォールバック)
+set policy route-map GCP-IN rule 10 action permit
+set policy route-map GCP-IN rule 10 set local-preference 50
 
 # 会場サブネット広告
 set protocols bgp address-family ipv4-unicast network 192.168.11.0/24
@@ -433,6 +474,19 @@ set interfaces wireguard wg0 peer r1 allowed-ips ::/0
 set interfaces wireguard wg0 peer r1 endpoint '<自宅グローバルIP>:51820'
 set interfaces wireguard wg0 peer r1 persistent-keepalive 25
 
+set interfaces wireguard wg1 address 10.255.2.1/30
+set interfaces wireguard wg1 mtu 1380
+set interfaces wireguard wg1 port 51821
+set interfaces wireguard wg1 private-key <r3-private-key>
+set interfaces wireguard wg1 description 'VPN to GCP (r2-gcp)'
+set interfaces wireguard wg1 peer r2-gcp public-key <r2-public-key>
+set interfaces wireguard wg1 peer r2-gcp allowed-ips 10.255.2.2/32
+set interfaces wireguard wg1 peer r2-gcp allowed-ips 10.255.1.0/30
+set interfaces wireguard wg1 peer r2-gcp allowed-ips 192.168.10.0/24
+set interfaces wireguard wg1 peer r2-gcp address 34.97.94.203
+set interfaces wireguard wg1 peer r2-gcp port 51821
+set interfaces wireguard wg1 peer r2-gcp persistent-keepalive 25
+
 # --- DHCP サーバー ---
 set service dhcp-server shared-network-name MGMT subnet 192.168.11.0/24 range 0 start 192.168.11.100
 set service dhcp-server shared-network-name MGMT subnet 192.168.11.0/24 range 0 stop 192.168.11.199
@@ -484,9 +538,26 @@ set service dhcpv6-server shared-network-name USER-V6 subnet <delegated-prefix>:
 
 # --- BGP ---
 set protocols bgp system-as 65001
+
+# r1 (WireGuard 直接)
 set protocols bgp neighbor 10.255.0.1 remote-as 65002
 set protocols bgp neighbor 10.255.0.1 description 'Home router (r1)'
 set protocols bgp neighbor 10.255.0.1 address-family ipv4-unicast
+set protocols bgp neighbor 10.255.0.1 address-family ipv4-unicast route-map import WG-IN
+
+# r2-gcp (GCP トランジット)
+set protocols bgp neighbor 10.255.2.2 remote-as 64512
+set protocols bgp neighbor 10.255.2.2 description 'r2-gcp'
+set protocols bgp neighbor 10.255.2.2 address-family ipv4-unicast
+set protocols bgp neighbor 10.255.2.2 address-family ipv4-unicast route-map import GCP-IN
+
+# Route Map
+set policy route-map WG-IN rule 10 action permit
+set policy route-map WG-IN rule 10 set local-preference 200
+set policy route-map GCP-IN rule 10 action permit
+set policy route-map GCP-IN rule 10 set local-preference 50
+
+# 会場サブネット広告
 set protocols bgp address-family ipv4-unicast network 192.168.11.0/24
 set protocols bgp address-family ipv4-unicast network 192.168.30.0/24
 set protocols bgp address-family ipv4-unicast network 192.168.40.0/22
