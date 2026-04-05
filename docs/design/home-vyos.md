@@ -482,9 +482,15 @@ set service router-advert interface eth2.40 prefix <delegated-prefix>::/64
 ```
 set service https api keys id mykey key 'BwAI'
 set service https api rest strict
+set service https listen-address 192.168.10.1
 ```
 
 管理 PC (eth0: 192.168.100.0/24) から VyOS 設定 API にアクセスするために使用。`scripts/r1-config.py` から curl で設定を投入する。
+
+> ⚠️ **`listen-address` の明示は必須**: デフォルトでは `service https` は全インターフェース (pppoe0 WAN 含む) で 443 を listen する。`nat destination rule 30` で `pppoe0:443 → 192.168.10.4` の DNAT を設定しているため **本来の WAN 経由トラフィックは PREROUTING で先に DNAT されて wstunnel server に届く**ので機能面の実害はないが、以下 2 点の問題があるため LAN 側 IP に限定する。
+>
+> 1. **LAN 内から自宅グローバル IP でアクセスしたときに r1 の nginx (API フロント) が応答してしまう**: ヘアピン NAT は別ルールで ip 向けに指定しない限り効かず、r1 自身の pppoe0 IP 宛パケットは INPUT に落ちて nginx (403/404) が返る。LAN 内動作確認やヘアピン前提の運用で想定外の応答になる
+> 2. **API の WAN 露出はセキュリティリスク**: `https://<WAN-IP>/retrieve` に API キーのブルートフォースが可能になってしまう
 
 ## SSH
 
@@ -786,6 +792,7 @@ set system name-server 127.0.0.1
 # HTTPS API
 set service https api keys id mykey key 'BwAI'
 set service https api rest strict
+set service https listen-address 192.168.10.1
 ```
 
 ## IX3315 との機能対応表

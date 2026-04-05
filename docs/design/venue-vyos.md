@@ -423,11 +423,13 @@ set system task-scheduler task ndp-dump executable path /config/scripts/ndp-dump
 ### wstunnel の動作概要
 
 ```
-WireGuard (wg0, endpoint=127.0.0.1:51820)
-  → wstunnel client (localhost:51820 を listen)
+WireGuard (wg0, endpoint=127.0.0.1:51821)
+  → wstunnel client (localhost:51821 を listen)
     → WSS (TLS, TCP 443) → 自宅 wstunnel server:443
       → WireGuard (r1, port 51820)
 ```
+
+> **ポート分離の必要性**: r3 の wg0 自身も UDP 51820 で listen しているため、wstunnel client の listen を同一ポートにすると `allow-host-networks` で bind 衝突し `Address already in use (os error 98)` で起動失敗する。このため wstunnel client は **51821** で listen させ、wg0 の peer endpoint を `127.0.0.1:51821` に向ける。r1 側 WireGuard (宛先) は設計通り 51820 のまま。
 
 ### VyOS コンテナ設定
 
@@ -436,20 +438,36 @@ WireGuard (wg0, endpoint=127.0.0.1:51820)
 
 set container name wstunnel image ghcr.io/erebe/wstunnel:latest
 set container name wstunnel allow-host-networks
-set container name wstunnel command 'client -L udp://127.0.0.1:51820:192.168.10.1:51820?timeout_sec=0 wss://<自宅FQDN>:443'
+set container name wstunnel command '/home/app/wstunnel client -L udp://127.0.0.1:51821:192.168.10.1:51820?timeout_sec=0 wss://<自宅FQDN>:443'
 set container name wstunnel restart on-failure
 set container name wstunnel description 'WireGuard over WebSocket tunnel (port restriction bypass)'
 ```
 
-- `allow-host-networks`: ホストネットワーク名前空間を共有 (localhost:51820 で WireGuard と通信するため必須)
-- `192.168.10.1:51820`: wstunnel サーバー (メインPC) から見た r1 の WireGuard アドレス
+- **`/home/app/wstunnel` の絶対パス指定は必須**: 公式イメージの `ENTRYPOINT` は `dumb-init -v --` で、VyOS の `container command` は Dockerfile `CMD` に相当する。`dumb-init` は shell を介さず直接 `execve` するため、command を `client -L ...` のようにサブコマンドから始めると `dumb-init: client: No such file or directory` で即 exit 2 して `restart on-failure` のループに落ちる
+- `allow-host-networks`: ホストネットワーク名前空間を共有 (localhost 経由で wg0 と UDP 通信するため必須)
+- `127.0.0.1:51821`: wg0 自身の listen port 51820 と衝突しないよう **51821** を使用
+- `192.168.10.1:51820`: 自宅 r1 の WireGuard アドレス (自宅 wstunnel server から見た最終転送先)
 - `wss://`: 自宅側 wstunnel サーバーのエンドポイント (TCP 443, TLS)。FQDN 指定可
+
+> ⚠️ **VyOS CLI から `set` で投入不可**: `command` 文字列に含まれる `?` (および `/`, `\`) は VyOS CLI が補完トリガーとして解釈し、シングルクォート内でも補完が発動して入力が打ち切られる。**このコマンドは必ず VyOS REST API (`/configure`) 経由で投入すること**。投入例:
+>
+> ```bash
+> curl -k -X POST https://<r3-mgmt-ip>/configure \
+>   -H "Content-Type: application/json" \
+>   -d '{"key":"<API_KEY>","commands":[
+>     {"op":"delete","path":["container","name","wstunnel","command"]},
+>     {"op":"set","path":["container","name","wstunnel","command",
+>       "/home/app/wstunnel client -L udp://127.0.0.1:51821:192.168.10.1:51820?timeout_sec=0 wss://<自宅FQDN>:443"]}
+>   ]}'
+> ```
+>
+> 投入後は `/config-file` エンドポイントで `save` を忘れずに実行する。
 
 ### WireGuard endpoint の切替
 
 ```
-# ポート制限環境時: wstunnel 経由
-set interfaces wireguard wg0 peer r1 endpoint '127.0.0.1:51820'
+# ポート制限環境時: wstunnel 経由 (wstunnel client は 127.0.0.1:51821 で listen)
+set interfaces wireguard wg0 peer r1 endpoint '127.0.0.1:51821'
 commit
 
 # ポート制限なし: 直接接続
@@ -537,10 +555,10 @@ set interfaces wireguard wg1 peer r2-gcp address 34.97.94.203
 set interfaces wireguard wg1 peer r2-gcp port 51821
 set interfaces wireguard wg1 peer r2-gcp persistent-keepalive 25
 
-# --- wstunnel コンテナ (ポート制限環境時に使用) ---
+# --- wstunnel コンテナ (ポート制限環境時に使用、command のみ REST API 経由で投入) ---
 set container name wstunnel image ghcr.io/erebe/wstunnel:latest
 set container name wstunnel allow-host-networks
-set container name wstunnel command 'client -L udp://127.0.0.1:51820:192.168.10.1:51820?timeout_sec=0 wss://<自宅FQDN>:443'
+set container name wstunnel command '/home/app/wstunnel client -L udp://127.0.0.1:51821:192.168.10.1:51820?timeout_sec=0 wss://<自宅FQDN>:443'
 set container name wstunnel restart on-failure
 set container name wstunnel description 'WireGuard over WebSocket tunnel (port restriction bypass)'
 
