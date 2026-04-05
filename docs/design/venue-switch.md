@@ -160,4 +160,20 @@ ip default-gateway 192.168.11.1
 - **5Ge ポートに Proxmox/WLC を収容**: 1GbE 機器でも auto-negotiate で接続可能。Ge ポートを AP/有線用に確保
 - **AP は access VLAN 11**: CAPWAP トンネルで WLC に集約。WLC がクライアントトラフィックを VLAN 30/40 にマッピング
 - **未使用ポートは shutdown**: 誤接続防止
-- **native VLAN 11**: trunk の native VLAN を mgmt に統一。管理トラフィックの untagged 通信を許可
+- **native VLAN 11**: trunk の native VLAN を mgmt に統一。管理トラフィックの untagged 通信も許可 (fallback)
+
+## 運用上の注記: スイッチ設定への非依存
+
+**配下機器は全員 tagged VLAN 11 で自力参加する**設計になっている。具体的には:
+
+- **VyOS r3**: `eth2.11 address 192.168.11.1/24` (tagged)
+- **Proxmox ホスト**: `vmbr_trunk.11 address 192.168.11.3/24` (tagged、VLAN-aware ブリッジの子 IF)
+- **local-srv CT**: `net0 bridge=vmbr_trunk,tag=11` (Proxmox が tagged で渡す)
+- **WLC / AP**: WLC の trunk で VLAN 11 tagged
+
+この構成により、sw01 の `switchport trunk native vlan 11` 設定は「あれば動作が安定する」程度のベストエフォートであり、**sw01 の設定ミス・初期化・代替機材への差し替えが発生しても L3 疎通に影響しない**。実際、2026-04-05 の検証で sw01 が実設定上 tagged VLAN 11 をそのまま trunk で透過するのみの状態でも、各機器が tagged で自力参加することで会場内疎通が成立することを確認済み。
+
+**運用上避けるべきこと**:
+
+- sw01 側で VLAN 11 を untagged (access) に変換してしまう構成変更。これを行うと tagged 参加している機器 (Proxmox、VyOS、WLC) 側と L2 が分断される
+- 設計書の trunk 設定をそのまま投入するのは問題ないが、うまく適用できなくても「機器は動くので先に進める」判断が可能
