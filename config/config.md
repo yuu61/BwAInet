@@ -1,0 +1,1 @@
+`prometheus.yml`はBwAI@UptimeKuma:~/prometheusにあります。
