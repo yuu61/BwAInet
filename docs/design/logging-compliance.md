@@ -82,6 +82,8 @@ iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム 
 | DHCP リース (IP ↔ MAC ↔ hostname) | ユーザー個人の認証情報 |
 | NDP テーブル (IPv6 ↔ MAC) | |
 | NAPT 変換マッピング (内部 IP:port ↔ グローバル IP:port) | |
+| NAT66 変換マッピング (GCP /64 SLAAC ↔ r2-gcp /96) | |
+| v4 SNAT 変換マッピング (内部 IP:port ↔ GCE IP:port) | |
 
 ## 2. ログ相関モデル
 
@@ -101,6 +103,8 @@ iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム 
 
 [NAT 変換]
   Conntrack イベント (r1) → timestamp + NAPT 変換マッピング (内部 IP:port ↔ グローバル IP:port)
+  Conntrack イベント (r2-gcp) → timestamp + NAT66 変換 (GCP /64 SLAAC ↔ r2-gcp /96)
+                                           + v4 SNAT 変換 (内部 IP:port ↔ GCE IP:port)
 ```
 
 ### 共通結合キー
@@ -116,7 +120,10 @@ iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム 
 1. DNS クエリログから `example.com` を引いた client IP を特定
 2. NetFlow から当該 IP の通信フローを確認
 3. DHCP リースログ / NDP ダンプから IP → MAC → hostname を特定
-4. Conntrack ログから内部 IP:port ↔ グローバル IP:port の NAPT 変換を特定
+4. Conntrack ログから NAT 変換を特定:
+   - r1: 内部 IP:port ↔ グローバル IP:port (OPTAGE 経由の通信)
+   - r2-gcp: 内部 IP:port ↔ GCE IP:port (Google 向け v4 通信)
+   - r2-gcp: GCP /64 SLAAC ↔ r2-gcp /96 (GCP /64 経由の v6 通信)
 5. ※ MAC がランダムでも hostname + MAC + 時刻帯の組み合わせで捜査機関に提供可能
 
 ## 3. VyOS DNS Forwarding 設定
@@ -288,6 +295,81 @@ conntrack ログを WireGuard 経由で会場の Local Server (192.168.11.2) に
 
 ```
 set system syslog host 192.168.11.2 facility local2 level info
+```
+
+## 6b. Conntrack イベントログ (r2-gcp, NAT66 / v4 SNAT 変換記録)
+
+GCP トラフィック最適化 (詳細は [`gcp-integration.md`](gcp-integration.md) を参照) により、r2-gcp で以下の NAT が行われる:
+
+| NAT 種別 | 変換内容 | 対象トラフィック |
+|----------|---------|-----------------|
+| NAT66 (IPv6) | 会場 GCP /64 src (`2600:1900:41d1:92::/64`) → r2-gcp /96 (`2600:1900:41d0:9d::/96`) | GCP /64 を src に持つ v6 トラフィック |
+| v4 SNAT | 会場サブネット src (`192.168.0.0/16`) → GCE 内部 IP (`10.174.0.7`) → GCE 外部 IP (`34.97.197.104`, 1:1 NAT) | goog.json 宛の v4 トラフィック |
+
+法執行機関からの照会が「GCE の外部 IP (`34.97.197.104`) から通信があった」「IPv6 アドレス `2600:1900:41d0:9d::xxxx` から通信があった」という形式で来た場合、r2-gcp の conntrack ログがないと内部デバイスを特定できない。
+
+### conntrack イベントロガー (r2-gcp)
+
+r1 と同様に `conntrack -E` で NAT 変換イベントを syslog に記録する。
+
+#### スクリプト (`/config/scripts/conntrack-logger.sh`)
+
+```bash
+#!/bin/bash
+# Conntrack イベントログ: NAT66 / v4 SNAT の変換マッピングを syslog に記録
+# 対象: 会場サブネット (192.168.0.0/16) および GCP /64 (2600:1900:41d1:92::/64)
+conntrack -E -e NEW,DESTROY -o timestamp 2>/dev/null | \
+    grep --line-buffered -E 'src=(192\.168\.|2600:1900:41d1:92:)' | \
+    logger -t conntrack-nat -p local2.info
+```
+
+#### systemd サービス
+
+r1 と同じユニットファイル (`/etc/systemd/system/conntrack-logger.service`) を配置し有効化する。
+
+#### syslog 転送 (r2-gcp → Local Server)
+
+conntrack ログを WireGuard (wg2) 経由で会場の Local Server (192.168.11.2) に転送する。
+
+```
+set system syslog host 192.168.11.2 facility local2 level info
+```
+
+### 出力例
+
+#### NAT66 (IPv6)
+
+```
+[1723286400.123456]    [NEW] udp  17 30 src=2600:1900:41d1:92::abcd dst=2607:f8b0:400a:80b::200e sport=54321 dport=443 [UNREPLIED] src=2607:f8b0:400a:80b::200e dst=2600:1900:41d0:9d::4 sport=443 dport=54321
+```
+
+読み方:
+- original tuple: `src=2600:1900:41d1:92::abcd` → 会場デバイスの GCP /64 SLAAC アドレス
+- reply tuple: `dst=2600:1900:41d0:9d::4` → NAT66 後の r2-gcp /96 アドレス
+- 会場デバイスの SLAAC アドレス → NDP ダンプで MAC → DHCP リースで hostname を特定
+
+#### v4 SNAT
+
+```
+[1723286400.789012]    [NEW] tcp   6 120 SYN_SENT src=192.168.40.123 dst=142.250.196.110 sport=54321 dport=443 [UNREPLIED] src=142.250.196.110 dst=10.174.0.7 sport=443 dport=12345
+```
+
+読み方:
+- original tuple: `src=192.168.40.123` → 会場デバイスの内部 IPv4
+- reply tuple: `dst=10.174.0.7` → SNAT 後の GCE 内部 IP (外部では `34.97.197.104`)
+- GCE の 1:1 NAT により、外部から見た IP は `34.97.197.104` となる
+
+### 照会対応
+
+```bash
+# r2-gcp の NAT66 変換: 外部 IPv6 → 会場デバイスの SLAAC アドレス
+grep "conntrack-nat" /var/log/syslog | grep "dst=2600:1900:41d0:9d:"
+
+# r2-gcp の v4 SNAT 変換: GCE 内部 IP (= 外部 34.97.197.104) → 会場デバイス
+grep "conntrack-nat" /var/log/syslog | grep "dst=10.174.0.7"
+
+# 特定内部 IP の Google 向け通信
+grep "conntrack-nat" /var/log/syslog | grep "src=192.168.40.123"
 ```
 
 ## 7. VyOS RA 設定

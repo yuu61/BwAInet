@@ -27,12 +27,12 @@ flowchart TB
   end
  subgraph s2["会場"]
         n1["192.168.0.0/16<br>11.0/24 vlan 11: mgmt (v4 only)<br>30.0/24 vlan 30: staff + live (v4 + v6)<br>40.0/22 vlan 40: user (v4 + v6)<br>vlan 30, 40 共通: DHCPv6-PD /64 (OPTAGE→自宅経由)"]
-        n2["Router構築方針<br>当日プロキシ解除が不確実のため VyOS採用<br>プロキシ無効化可能 → WireGuard 直接<br>不可能 → WireGuard over wstunnel (WSS/TCP 443)<br>上位は常に wg0 (BGP/IPv6/firewall 設定を統一)<br>wg0 MTU 1380 (wstunnel 経由時も対応)"]
+        n2["Router構築方針<br>当日プロキシ解除が不確実のため VyOS採用<br>プロキシ無効化可能 → WireGuard 直接<br>不可能 → WireGuard over wstunnel (WSS/TCP 443)<br>上位は常に wg0 (BGP/IPv6/firewall 設定を統一)<br>wg0 MTU 1400 (GCP VPC 1460 が制約、wstunnel 不使用)"]
         n4["ACL (v4)<br>vlan 30 (staff) → vlan 11 (mgmt): 許可<br>vlan 40 (user) → 192.168.11.1 (default GW): 許可<br>vlan 40 (user) → vlan 11 (上記以外): 拒否<br>vlan 40 (user) → 他 vlan: 拒否<br>---<br>IPv6: vlan 30, 40 は同一 /64 を共有 (RA: A=1, M=1, O=1, RDNSS)<br>mgmt (vlan 11) は v6 なし → v6 経由のアクセス不可<br>ndppd でインバウンド NDP proxy"]
         n5["通信ログ保存 (法執行機関対応) + AUP<br>利用規約: 通信記録の告知 + 公序良俗違反禁止<br>ランダムMAC: per-SSID固定のため対策不要 (hostname で補助識別)<br>---<br>NetFlow v9: r3 → nfcapd (5-tuple, 180日)<br>DNS クエリログ: r3 dns forwarding (qname+client IP)<br>DHCP forensic log: r3 dhcp-server (IP↔MAC↔hostname)<br>NDP dump: r3 cron 1分 (IPv6↔MAC, iOS/Android対応)"]
         subgraph proxmox["Dell OptiPlex 3070 Micro (Proxmox VE)"]
             pve["Proxmox ホスト<br>vmbr_trunk (VLAN-aware)<br>vmbr_trunk.11 → 192.168.11.3 (mgmt)"]
-            r3["r3-vyos (VM)<br>AS65001<br>eth2 trunk (virtio) + eth3 USB passthrough<br>DNS / DHCP / BGP / NetFlow / NDP dump<br>wstunnel (podman, 内部動作)"]
+            r3["r3-vyos (VM)<br>AS65001<br>eth2 trunk (virtio) + eth1 WAN (virtio via vmbr_wan)<br>DNS / DHCP / BGP / NetFlow / NDP dump<br>wstunnel (podman, 内部動作)"]
             server
         end
         sw["PoE SW<br>"]

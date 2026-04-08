@@ -187,12 +187,15 @@ WireGuard over wstunnel (WebSocket + TLS):
   1492 - 20(IPv4) - 20(TCP) - 5(TLS record) - 14(WS frame) - 32(WG) = ~1401
 ```
 
-#### wg0 MTU 設定: 1380
+#### WG MTU 設定: 1400
 
-- WireGuard 直接時: 52B の余裕
-- wstunnel 経由時: 21B の余裕 (SoftEther 旧設計の 12B より改善)
-- トンネル内 IPv6 の TCP MSS: 1380 - 40(IPv6) - 20(TCP) = **1320**
-- IPv6 最小 MTU (1280, RFC 8200) まで **100B の余裕**
+wstunnel を使用せず WireGuard 直接接続とする方針により、GCP VPC MTU (1460) がボトルネックとなる。全 WG インターフェースを 1400 に統一することで、BGP フェイルオーバー (wg0→wg1) 時の TCP MSS 不整合を防ぐ。
+
+- GCP パス: 1400 + 60 = 1460 = GCP VPC MTU (余裕 0B、ちょうど収まる)
+- PPPoE パス: 1400 + 60 = 1460 < 1492 (余裕 32B)
+- 会場上流: 1400 + 60 = 1460 < 1500 (余裕 40B)
+- トンネル内 IPv6 の TCP MSS: 1400 - 40(IPv6) - 20(TCP) = **1340**
+- IPv6 最小 MTU (1280, RFC 8200) まで **120B の余裕**
 
 #### MSS Clamping
 

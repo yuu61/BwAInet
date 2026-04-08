@@ -365,7 +365,7 @@ set firewall ipv6 name WANv6-LOCAL rule 30 description 'DHCPv6 replies'
 set interfaces wireguard wg0 address 10.255.0.1/30
 set interfaces wireguard wg0 port 51820
 set interfaces wireguard wg0 private-key <r1-private-key>
-set interfaces wireguard wg0 mtu 1380
+set interfaces wireguard wg0 mtu 1400
 
 set interfaces wireguard wg0 peer venue public-key <r3-public-key>
 set interfaces wireguard wg0 peer venue allowed-ips 10.255.0.2/32
@@ -389,7 +389,7 @@ set firewall options interface wg0 adjust-mss clamp-mss-to-pmtu
 set interfaces wireguard wg1 address 10.255.1.1/30
 set interfaces wireguard wg1 port 51821
 set interfaces wireguard wg1 private-key <r1-private-key>
-set interfaces wireguard wg1 mtu 1380
+set interfaces wireguard wg1 mtu 1400
 
 set interfaces wireguard wg1 peer r2-gcp public-key <r2-public-key>
 set interfaces wireguard wg1 peer r2-gcp address 34.97.197.104
@@ -632,7 +632,7 @@ set interfaces bridge br0 member interface eth2
 set interfaces wireguard wg0 address 10.255.0.1/30
 set interfaces wireguard wg0 port 51820
 set interfaces wireguard wg0 private-key <r1-private-key>
-set interfaces wireguard wg0 mtu 1380
+set interfaces wireguard wg0 mtu 1400
 set interfaces wireguard wg0 peer venue public-key <r3-public-key>
 set interfaces wireguard wg0 peer venue allowed-ips 10.255.0.2/32
 set interfaces wireguard wg0 peer venue allowed-ips 192.168.11.0/24
@@ -643,7 +643,7 @@ set interfaces wireguard wg0 peer venue allowed-ips 192.168.40.0/22
 set interfaces wireguard wg1 address 10.255.1.1/30
 set interfaces wireguard wg1 port 51821
 set interfaces wireguard wg1 private-key <r1-private-key>
-set interfaces wireguard wg1 mtu 1380
+set interfaces wireguard wg1 mtu 1400
 set interfaces wireguard wg1 peer r2-gcp public-key <r2-public-key>
 set interfaces wireguard wg1 peer r2-gcp address 34.97.197.104
 set interfaces wireguard wg1 peer r2-gcp port 51820
