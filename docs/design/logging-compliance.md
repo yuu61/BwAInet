@@ -43,6 +43,9 @@ Build with AI in Kwansai 2026 ネットワーク利用規約
    本ネットワークは通信最適化のため、Google 社のサービス (Google Cloud, Gmail, YouTube, Google 検索, Google Workspace 等) 宛の通信をGoogle Cloud Platform 経由で中継します。
    このため、これらのサービスから観測される送信元 IP アドレスは、本ネットワーク経由で他のウェブサイト等にアクセスする場合とは異なるアドレスとなります。
 
+   また、Google Cloud 経由で中継される IPv6 通信では、送信元 IPv6 アドレスのプレフィックス (上位 96bit) がネットワーク中継装置のアドレスに変換されます。
+   お使いのデバイスに設定されている IPv6 アドレスと、外部サービスから観測される IPv6 アドレスは、下位 32bit のみ一致し、上位部分は異なります。
+
    ご自身が管理される Google Cloud 上の仮想マシン等に対し送信元 IP アドレスによるアクセス制限を設定されている場合、本ネットワークから直接の接続ができない可能性があります。
    該当する運用をされている方は通常の対処方法(踏み台サーバー、VPN、Identity-Aware Proxy 等) をご利用ください。
    以下の代替手段も利用可能です。
@@ -307,7 +310,7 @@ GCP トラフィック最適化 (詳細は [`gcp-integration.md`](gcp-integratio
 
 | NAT 種別 | 変換内容 | 対象トラフィック |
 |----------|---------|-----------------|
-| NAT66 (IPv6) | 会場 GCP /64 src (`2600:1900:41d1:92::/64`) → r2-gcp /96 (`2600:1900:41d0:9d::/96`) | GCP /64 を src に持つ v6 トラフィック |
+| NAT66 (IPv6) | 会場 GCP /64 src (`2600:1900:41d1:92::/64`) → r2-gcp /96 (`2600:1900:41d0:9d::/96`)、`snat prefix to` により IID 下位 32bit を保持 | GCP /64 を src に持つ v6 トラフィック |
 | v4 SNAT | 会場サブネット src (`192.168.0.0/16`) → GCE 内部 IP (`10.174.0.7`) → GCE 外部 IP (`34.97.197.104`, 1:1 NAT) | goog.json 宛の v4 トラフィック |
 
 法執行機関からの照会が「GCE の外部 IP (`34.97.197.104`) から通信があった」「IPv6 アドレス `2600:1900:41d0:9d::xxxx` から通信があった」という形式で来た場合、r2-gcp の conntrack ログがないと内部デバイスを特定できない。
@@ -344,12 +347,13 @@ set system syslog host 192.168.11.2 facility local2 level info
 #### NAT66 (IPv6)
 
 ```
-[1723286400.123456]    [NEW] udp  17 30 src=2600:1900:41d1:92::abcd dst=2607:f8b0:400a:80b::200e sport=54321 dport=443 [UNREPLIED] src=2607:f8b0:400a:80b::200e dst=2600:1900:41d0:9d::4 sport=443 dport=54321
+[1723286400.123456]    [NEW] udp  17 30 src=2600:1900:41d1:92:a891:4504:ae8a:591f dst=2607:f8b0:400a:80b::200e sport=54321 dport=443 [UNREPLIED] src=2607:f8b0:400a:80b::200e dst=2600:1900:41d0:9d::ae8a:591f sport=443 dport=54321
 ```
 
 読み方:
-- original tuple: `src=2600:1900:41d1:92::abcd` → 会場デバイスの GCP /64 SLAAC アドレス
-- reply tuple: `dst=2600:1900:41d0:9d::4` → NAT66 後の r2-gcp /96 アドレス
+- original tuple: `src=2600:1900:41d1:92:a891:4504:ae8a:591f` → 会場デバイスの GCP /64 SLAAC アドレス
+- reply tuple: `dst=2600:1900:41d0:9d::ae8a:591f` → NAT66 後の r2-gcp /96 アドレス (IID 下位 32bit `ae8a:591f` が保持される)
+- `snat prefix to /96` により外部 IP の下位 32bit から元デバイスを特定可能 (IID 下位 32bit 衝突は SLAAC ランダム生成のため会場規模では事実上発生しない)
 - 会場デバイスの SLAAC アドレス → NDP ダンプで MAC → DHCP リースで hostname を特定
 
 #### v4 SNAT

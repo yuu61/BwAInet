@@ -76,14 +76,17 @@ GCP データプレーンは、サブネットの /64 内で **VM の /96 に割
 
 #### NAT66 による解決
 
-r2-gcp で **NAT66** を行い、会場デバイスの src アドレスを r2-gcp の /96 アドレスに変換する。戻りパケットは r2-gcp の /96 宛となるため、GCP が正しくルーティングする。
+r2-gcp で **NAT66 (snat prefix to /96)** を行い、会場デバイスの src アドレスを r2-gcp の /96 アドレス範囲に変換する。`snat prefix to` はプレフィックス変換方式で、元アドレスの IID 下位 32bit を保持しつつ上位 96bit を書き換える。これにより外部から見てもデバイスごとにほぼ一意のアドレスとなる（ただし conntrack 衝突時はフォールバックするため完全保証ではない）。戻りパケットは r2-gcp の /96 宛となるため、GCP が正しくルーティングする。
 
 ```
 [Outbound]
 会場デバイス (src: GCP /64 SLAAC addr, dst: Internet)
   → r3 PBR → wg1 → r2-gcp
-    → NAT66 masquerade (src → r2-gcp /96 addr)
+    → NAT66 snat prefix to /96 (src IID 下位 32bit 保持)
       → Google backbone → Internet / GCP サービス
+
+  例: src 2600:1900:41d1:92:a891:4504:ae8a:591f
+    → NAT66 後: 2600:1900:41d0:9d::ae8a:591f (下位 32bit 保持)
 
 [Inbound (戻り)]
 Internet → Google backbone → VPC
@@ -464,17 +467,19 @@ set system option ip-forwarding
 
 #### NAT66 (IPv6 source NAT)
 
-会場デバイスの GCP /64 src アドレスを r2-gcp の /96 アドレスに変換する。GCP データプレーンが /96 外のアドレスを drop するため必須。
+会場デバイスの GCP /64 src アドレスを r2-gcp の /96 アドレス範囲に変換する。GCP データプレーンが /96 外のアドレスを drop するため必須。
+
+`masquerade` ではなく `/96` プレフィックス指定 (`snat prefix to`) を使用する。nftables が元アドレスの IID 下位 32bit を保持した変換先を選択するため、外部から見てデバイスごとに一意のアドレスとなる。異なるデバイスの IID 下位 32bit が衝突した場合のみフォールバックが起きるが、SLAAC IID はランダム生成のため会場規模では事実上発生しない。法執行機関対応では引き続き conntrack ログを記録する。
 
 ```
-# v6: 会場 GCP /64 src → r2-gcp /96 アドレスに SNAT
+# v6: 会場 GCP /64 src → r2-gcp /96 アドレス範囲に SNAT (prefix 変換)
 set nat66 source rule 10 outbound-interface name eth0
-set nat66 source rule 10 source prefix <gcp-prefix>::/64
-set nat66 source rule 10 translation address masquerade
+set nat66 source rule 10 source prefix 2600:1900:41d1:92::/64
+set nat66 source rule 10 translation address 2600:1900:41d0:9d::/96
 set nat66 source rule 10 description 'NAT66 venue GCP prefix to r2-gcp /96'
 ```
 
-戻りパケットは r2-gcp の /96 アドレス宛で到着し、conntrack により自動的に un-NAT される。
+nftables 上では `snat prefix to 2600:1900:41d0:9d::/96` として適用される。戻りパケットは r2-gcp の /96 アドレス宛で到着し、conntrack により自動的に un-NAT される。
 
 #### v4 SNAT (Google IP レンジ向け)
 

@@ -27,12 +27,12 @@
 
 | ポート | 接続先 | Type | モード | VLAN | 備考 |
 |--------|--------|------|--------|------|------|
-| XSGe 0/1 | 他スイッチ (sw02 等) | T1 | trunk | 11,30,40 (native 11) | 10G fiber スイッチ間接続 |
-| XSGe 0/2 | 他スイッチ (sw02 等) | T1 | trunk | 11,30,40 (native 11) | 10G fiber スイッチ間接続 |
+| XSGe 0/1 | 他スイッチ (sw02 等) | T1 | trunk | 11,30,40 | 10G fiber スイッチ間接続 |
+| XSGe 0/2 | 他スイッチ (sw02 等) | T1 | trunk | 11,30,40 | 10G fiber スイッチ間接続 |
 | 5Ge 0/1 | AP (Aironet 3800) | T2 | trunk | 11,30,40 (native 11) | mGig 対応 AP、PoE+ 給電 |
 | 5Ge 0/2 | Proxmox (r1-home / r3-vyos) | T1 | trunk | 11,30,40 (native なし) | VM 基盤トランク (1GbE ネゴ)。Proxmox PVID=1 のため VLAN 11 は tagged で通す |
 | Ge 0/3–7 | AP (Aironet 3800) | T2 | trunk | 11,30,40 (native 11) | SSID ローカルスイッチング、PoE+ 給電 |
-| Ge 0/8 | WLC (Cisco 3504) | T1 | trunk | 11,30,40 (native 11) | FlexConnect 制御プレーンのみ、PoE 不要 |
+| Ge 0/8 | WLC (Cisco 3504) | T1 | trunk | 11,30,40 | FlexConnect 制御プレーンのみ、PoE 不要 |
 | Ge 0/9 | 配信 PC、スピーカー | T3 | access | 30 | 運営有線 |
 | Ge 0/10 | 来場者有線 | T3 | access | 40 | ユーザー有線 |
 
@@ -78,7 +78,6 @@ interface XSGigabitEthernet 0/1
  description T1-ISL
  switchport mode trunk
  switchport trunk allowed vlan 11,30,40
- switchport trunk native vlan 11
  no shutdown
 
 ! XSGe 0/2: スイッチ間接続 (10G fiber)
@@ -86,7 +85,6 @@ interface XSGigabitEthernet 0/2
  description T1-ISL
  switchport mode trunk
  switchport trunk allowed vlan 11,30,40
- switchport trunk native vlan 11
  no shutdown
 
 ! 5Ge 0/1: AP (Aironet 3800, mGig)
@@ -130,7 +128,6 @@ interface GigabitEthernet 0/8
  description T1-Trunk-WLC3504
  switchport mode trunk
  switchport trunk allowed vlan 11,30,40
- switchport trunk native vlan 11
  no poe enable
  no shutdown
 

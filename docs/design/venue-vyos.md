@@ -412,7 +412,7 @@ systemctl start ndppd || true
 
 ### 経路優先度制御
 
-WireGuard 直接リンク (r1) を優先し、r2-gcp 経由をフォールバックにする。IPv4/IPv6 とも同じ route-map (WG-IN: LP=200, GCP-IN: LP=50) を適用。
+WireGuard 直接リンク (r1) を優先し、r2-gcp 経由をフォールバックにする。ただし r2-gcp が広告する Google プレフィックス (goog.json 由来) は r2-gcp 直接を優先する (LP=250)。default route のみ r1 優先 (LP=50) を維持し、r1 障害時のフォールバックとする。
 
 ### BFD (Bidirectional Forwarding Detection)
 
@@ -483,9 +483,20 @@ set protocols bgp address-family ipv6-unicast redistribute connected
 set policy route-map WG-IN rule 10 action permit
 set policy route-map WG-IN rule 10 set local-preference 200
 
-# GCP 経由: local-pref 50 (フォールバック)
+# GCP 経由: default route のみ LP=50 (r1 優先を維持)、Google プレフィックスは LP=250 (r2-gcp 直接優先)
+set policy prefix-list DEFAULT-ONLY rule 10 action permit
+set policy prefix-list DEFAULT-ONLY rule 10 prefix 0.0.0.0/0
+set policy prefix-list6 DEFAULT6-ONLY rule 10 action permit
+set policy prefix-list6 DEFAULT6-ONLY rule 10 prefix ::/0
+
 set policy route-map GCP-IN rule 10 action permit
+set policy route-map GCP-IN rule 10 match ip address prefix-list DEFAULT-ONLY
 set policy route-map GCP-IN rule 10 set local-preference 50
+set policy route-map GCP-IN rule 15 action permit
+set policy route-map GCP-IN rule 15 match ipv6 address prefix-list DEFAULT6-ONLY
+set policy route-map GCP-IN rule 15 set local-preference 50
+set policy route-map GCP-IN rule 20 action permit
+set policy route-map GCP-IN rule 20 set local-preference 250
 
 # 会場サブネット広告
 set protocols bgp address-family ipv4-unicast network 192.168.11.0/24
@@ -953,8 +964,18 @@ set protocols bgp neighbor 10.255.2.2 address-family ipv4-unicast route-map impo
 # Route Map
 set policy route-map WG-IN rule 10 action permit
 set policy route-map WG-IN rule 10 set local-preference 200
+set policy prefix-list DEFAULT-ONLY rule 10 action permit
+set policy prefix-list DEFAULT-ONLY rule 10 prefix 0.0.0.0/0
+set policy prefix-list6 DEFAULT6-ONLY rule 10 action permit
+set policy prefix-list6 DEFAULT6-ONLY rule 10 prefix ::/0
 set policy route-map GCP-IN rule 10 action permit
+set policy route-map GCP-IN rule 10 match ip address prefix-list DEFAULT-ONLY
 set policy route-map GCP-IN rule 10 set local-preference 50
+set policy route-map GCP-IN rule 15 action permit
+set policy route-map GCP-IN rule 15 match ipv6 address prefix-list DEFAULT6-ONLY
+set policy route-map GCP-IN rule 15 set local-preference 50
+set policy route-map GCP-IN rule 20 action permit
+set policy route-map GCP-IN rule 20 set local-preference 250
 
 # 会場サブネット広告
 set protocols bgp address-family ipv4-unicast network 192.168.11.0/24

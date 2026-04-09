@@ -249,7 +249,7 @@ WireGuard 障害時 (自動フォールバック):
   r3 → wg1 → r2-gcp → wg0 → r1           AS path: 65001 → 64512 → 65002 (3 hop)
 ```
 
-WireGuard 直接リンク断で BGP セッションも落ち、自動的に r2-gcp 経由にフォールバック。AS path prepend も local-preference も不要で、AS path 長のみで制御可能。ただし確実性のため local-preference を併用する（直接 = 200、GCP 経由 = 50）。
+WireGuard 直接リンク断で BGP セッションも落ち、自動的に r2-gcp 経由にフォールバック。local-preference で制御: r1 直接 = 200、r2-gcp の Google プレフィックス = 250 (r2-gcp 直接優先)、r2-gcp の default route = 50 (r1 優先を維持)。Google 宛 v4 トラフィックは r3 → r2-gcp 直接で、r1 を経由しない。
 
 #### GCE/GCS 向けトラフィック
 
