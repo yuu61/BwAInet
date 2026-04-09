@@ -1,45 +1,62 @@
 #!/bin/bash
 # v6-health-monitor.sh — IPv6 出口ヘルスチェック & RA プレフィックス廃止/復旧
 #
-# r3 の VyOS task-scheduler で 5 秒間隔実行:
+# r3 の VyOS task-scheduler で 5 分間隔実行:
 #   set system task-scheduler task v6-health interval 5
 #   set system task-scheduler task v6-health executable path /config/scripts/v6-health-monitor.sh
 #
 # 動作:
 #   各出口 (OPTAGE via r1, GCP via r2) に対して ping プローブを実行。
 #   3 回連続失敗で障害判定 → 該当プレフィックスの RA を lifetime=0 に変更。
-#   3 回連続成功で復旧判定 → RA を通常 lifetime に戻す。
+#   3 回連続成功で復旧判定 → RA を設計値の lifetime に戻す。
 #
-# 判定タイムライン:
-#   t=0s    障害発生
-#   t=15s   3 回連続失敗 → RA lifetime=0 送出
-#   t=16-20s クライアントが deprecated プレフィックスの使用を停止
+# 判定タイムライン (interval=5 の場合):
+#   t=0min   障害発生
+#   t=15min  3 回連続失敗 → RA lifetime=0 送出
+#            クライアントが deprecated プレフィックスの使用を停止
+
+set -u
+
+exec 9>/tmp/v6-health.lock
+flock -n 9 || { logger -t "v6-health" "another instance running, skip"; exit 0; }
 
 STATE_DIR="/tmp/v6-health"
 API_URL="https://192.168.11.1"
 API_KEY="BwAI"
 LOG_TAG="v6-health"
+RA_INTERFACES="eth2.30 eth2.40"
 
 FAIL_THRESHOLD=3   # 連続失敗回数で障害判定
 OK_THRESHOLD=3     # 連続成功回数で復旧判定
 
 # プローブ先 (複数指定: いずれか 1 つに到達できれば OK)
-PROBE_TARGETS="2001:4860:4860::8888 2606:4700:4700::1111"
+# Google Public DNS, Cloudflare DNS, Google DNS (alt)
+PROBE_TARGETS="2001:4860:4860::8888 2606:4700:4700::1111 2001:4860:4860::8844"
+
+# --- 設計値: 各出口の RA prefix lifetime ---
+# OPTAGE: VyOS デフォルト (preferred=14400, valid=2592000) を使用
+#         → restore 時は lifetime 設定を delete する
+# GCP:    OPTAGE より短い lifetime で非優先化
+#         → restore 時はこの値を set する
+OPTAGE_RESTORE_MODE="delete"
+GCP_PREFIX_HINT="2600:1900:"           # GCP subnet 検出用プレフィックス
+GCP_RESTORE_MODE="set"
+GCP_PREFERRED_LIFETIME="1800"
+GCP_VALID_LIFETIME="14400"
 
 log() { logger -t "$LOG_TAG" "$1"; }
 mkdir -p "$STATE_DIR"
+log "=== health check start ==="
 
 # --- プローブ関数 ---
-# 引数: $1=出口名, $2=ソースアドレス
+# 引数: $1=ソースアドレス
 # ソースアドレスを指定することで、カーネルの src-based ルーティングにより
 # OPTAGE ソース → wg0 → r1, GCP ソース → wg1 → r2 に振り分けられる。
-# ※ GCP プレフィックス未設定時は GCP プローブをスキップ
 probe_exit() {
-    local exit_name="$1"
-    local src_addr="$2"
+    local src_addr="$1"
 
     if [ -z "$src_addr" ]; then
-        return 1  # ソースアドレスなし → スキップ
+        return 1
     fi
 
     for target in $PROBE_TARGETS; do
@@ -51,150 +68,221 @@ probe_exit() {
 }
 
 # --- 状態管理関数 ---
-get_fail_count() {
-    cat "$STATE_DIR/${1}_fail" 2>/dev/null || echo 0
-}
+get_fail_count() { cat "$STATE_DIR/${1}_fail" 2>/dev/null || echo 0; }
+get_ok_count()   { cat "$STATE_DIR/${1}_ok"   2>/dev/null || echo 0; }
 
-get_ok_count() {
-    cat "$STATE_DIR/${1}_ok" 2>/dev/null || echo 0
-}
-
-get_status() {
-    cat "$STATE_DIR/${1}_status" 2>/dev/null || echo "up"
-}
+# unknown: ステートファイル未存在 (再起動後の初回)
+get_status() { cat "$STATE_DIR/${1}_status" 2>/dev/null || echo "unknown"; }
 
 # --- RA 制御関数 ---
+# deprecate: 全 RA インターフェースの該当プレフィックスを lifetime=0 にする
 deprecate_prefix() {
     local prefix="$1"
-    log "DEPRECATING prefix $prefix (RA lifetime=0)"
-    # VLAN 30, 40 両方の RA プレフィックスを lifetime=0 に変更
-    curl -sk --connect-timeout 5 -X POST "$API_URL/configure" \
+    local cmds=""
+
+    for iface in $RA_INTERFACES; do
+        cmds="${cmds}{\"op\":\"set\",\"path\":[\"service\",\"router-advert\",\"interface\",\"${iface}\",\"prefix\",\"${prefix}\",\"preferred-lifetime\",\"0\"]},"
+        cmds="${cmds}{\"op\":\"set\",\"path\":[\"service\",\"router-advert\",\"interface\",\"${iface}\",\"prefix\",\"${prefix}\",\"valid-lifetime\",\"0\"]},"
+    done
+    cmds="${cmds%,}"
+
+    local http_code
+    http_code=$(curl -sk --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+        -X POST "$API_URL/configure" \
         -H 'Content-Type: application/json' \
-        -d "$(cat <<JSON
-{
-  "key": "$API_KEY",
-  "commands": [
-    {"op": "set", "path": ["service", "router-advert", "interface", "eth2.30", "prefix", "$prefix", "preferred-lifetime", "0"]},
-    {"op": "set", "path": ["service", "router-advert", "interface", "eth2.30", "prefix", "$prefix", "valid-lifetime", "0"]},
-    {"op": "set", "path": ["service", "router-advert", "interface", "eth2.40", "prefix", "$prefix", "preferred-lifetime", "0"]},
-    {"op": "set", "path": ["service", "router-advert", "interface", "eth2.40", "prefix", "$prefix", "valid-lifetime", "0"]}
-  ]
-}
-JSON
-)" > /dev/null 2>&1
+        -d "{\"key\":\"${API_KEY}\",\"commands\":[${cmds}]}" 2>/dev/null)
+    [ "$http_code" = "200" ]
 }
 
+# restore: 設計値に戻す
+#   mode=delete → lifetime 設定を削除して VyOS デフォルトに戻す (OPTAGE 用)
+#   mode=set    → 指定した lifetime を set する (GCP 用)
 restore_prefix() {
     local prefix="$1"
-    log "RESTORING prefix $prefix (RA lifetime=default)"
-    # lifetime 設定を削除してデフォルト (infinite) に戻す
-    curl -sk --connect-timeout 5 -X POST "$API_URL/configure" \
+    local mode="$2"
+    local pref_lt="$3"
+    local valid_lt="$4"
+    local cmds=""
+
+    for iface in $RA_INTERFACES; do
+        if [ "$mode" = "delete" ]; then
+            cmds="${cmds}{\"op\":\"delete\",\"path\":[\"service\",\"router-advert\",\"interface\",\"${iface}\",\"prefix\",\"${prefix}\",\"preferred-lifetime\"]},"
+            cmds="${cmds}{\"op\":\"delete\",\"path\":[\"service\",\"router-advert\",\"interface\",\"${iface}\",\"prefix\",\"${prefix}\",\"valid-lifetime\"]},"
+        else
+            cmds="${cmds}{\"op\":\"set\",\"path\":[\"service\",\"router-advert\",\"interface\",\"${iface}\",\"prefix\",\"${prefix}\",\"preferred-lifetime\",\"${pref_lt}\"]},"
+            cmds="${cmds}{\"op\":\"set\",\"path\":[\"service\",\"router-advert\",\"interface\",\"${iface}\",\"prefix\",\"${prefix}\",\"valid-lifetime\",\"${valid_lt}\"]},"
+        fi
+    done
+    cmds="${cmds%,}"
+
+    local http_code
+    http_code=$(curl -sk --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+        -X POST "$API_URL/configure" \
         -H 'Content-Type: application/json' \
-        -d "$(cat <<JSON
-{
-  "key": "$API_KEY",
-  "commands": [
-    {"op": "delete", "path": ["service", "router-advert", "interface", "eth2.30", "prefix", "$prefix", "preferred-lifetime"]},
-    {"op": "delete", "path": ["service", "router-advert", "interface", "eth2.30", "prefix", "$prefix", "valid-lifetime"]},
-    {"op": "delete", "path": ["service", "router-advert", "interface", "eth2.40", "prefix", "$prefix", "preferred-lifetime"]},
-    {"op": "delete", "path": ["service", "router-advert", "interface", "eth2.40", "prefix", "$prefix", "valid-lifetime"]}
-  ]
+        -d "{\"key\":\"${API_KEY}\",\"commands\":[${cmds}]}" 2>/dev/null)
+
+    # delete モードでは「削除対象が存在しない」(400) も成功扱い
+    # (既にデフォルト lifetime の場合、delete するものがない)
+    if [ "$mode" = "delete" ]; then
+        [ "$http_code" = "200" ] || [ "$http_code" = "400" ]
+    else
+        [ "$http_code" = "200" ]
+    fi
 }
-JSON
-)" > /dev/null 2>&1
+
+# --- 出口チェック共通関数 ---
+# 引数: $1=出口名, $2=prefix, $3=src_addr, $4=restore_mode, $5=pref_lt, $6=valid_lt
+check_exit() {
+    local name="$1"
+    local prefix="$2"
+    local src_addr="$3"
+    local restore_mode="$4"
+    local pref_lt="$5"
+    local valid_lt="$6"
+
+    if [ -z "$prefix" ]; then return; fi
+    if [ -z "$src_addr" ]; then
+        log "$name: src_addr is empty (src_from_prefix failed?), skipping"
+        return
+    fi
+
+    local status
+    status=$(get_status "$name")
+
+    # --- 初回起動 (status=unknown) ---
+    # /tmp は tmpfs のため再起動でステートが消える。
+    # saved config に lifetime=0 が残っていても、プローブ結果に基づいて正しく初期化する。
+    # probe OK → 即 restore (安全: 正常状態の確認)
+    # probe FAIL → status=unknown のまま fail_count を累積。閾値到達で deprecate。
+    #              unknown 中に probe OK が来れば即 restore する。
+    #              (起動直後は BGP 再収束等で一時的に失敗しやすいため即 deprecate しない)
+    if [ "$status" = "unknown" ]; then
+        if probe_exit "$src_addr"; then
+            log "$name exit INIT: probe OK, restoring prefix $prefix"
+            if restore_prefix "$prefix" "$restore_mode" "$pref_lt" "$valid_lt"; then
+                echo "up" > "$STATE_DIR/${name}_status"
+            else
+                log "$name exit INIT: restore API call failed (HTTP error), will retry next cycle"
+            fi
+            echo 0 > "$STATE_DIR/${name}_fail"
+            echo 1 > "$STATE_DIR/${name}_ok"
+        else
+            local fail_count
+            fail_count=$(get_fail_count "$name")
+            fail_count=$((fail_count + 1))
+            log "$name exit INIT: probe FAIL (fail_count=$fail_count/$FAIL_THRESHOLD)"
+            echo "$fail_count" > "$STATE_DIR/${name}_fail"
+            echo 0 > "$STATE_DIR/${name}_ok"
+
+            if [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then
+                log "$name exit INIT: threshold reached, deprecating prefix $prefix"
+                if deprecate_prefix "$prefix"; then
+                    echo "down" > "$STATE_DIR/${name}_status"
+                else
+                    log "$name exit INIT: deprecate API call failed, will retry next cycle"
+                fi
+            fi
+        fi
+        return
+    fi
+
+    # --- 通常運用 ---
+    if probe_exit "$src_addr"; then
+        log "$name: probe OK (status=$status)"
+        echo 0 > "$STATE_DIR/${name}_fail"
+        local ok_count
+        ok_count=$(get_ok_count "$name")
+        ok_count=$((ok_count + 1))
+        echo "$ok_count" > "$STATE_DIR/${name}_ok"
+
+        if [ "$status" = "down" ] && [ "$ok_count" -ge "$OK_THRESHOLD" ]; then
+            log "$name exit RECOVERED ($ok_count consecutive OK)"
+            if restore_prefix "$prefix" "$restore_mode" "$pref_lt" "$valid_lt"; then
+                echo "up" > "$STATE_DIR/${name}_status"
+                echo 0 > "$STATE_DIR/${name}_ok"
+            else
+                log "$name: restore API call failed, will retry next cycle"
+            fi
+        fi
+    else
+        log "$name: probe FAIL (status=$status)"
+        echo 0 > "$STATE_DIR/${name}_ok"
+        local fail_count
+        fail_count=$(get_fail_count "$name")
+        fail_count=$((fail_count + 1))
+        echo "$fail_count" > "$STATE_DIR/${name}_fail"
+
+        if [ "$status" = "up" ] && [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then
+            log "$name exit FAILED ($fail_count consecutive failures)"
+            if deprecate_prefix "$prefix"; then
+                echo "down" > "$STATE_DIR/${name}_status"
+                echo 0 > "$STATE_DIR/${name}_fail"
+            else
+                log "$name: deprecate API call failed, will retry next cycle"
+            fi
+        fi
+    fi
 }
 
 # --- メインロジック ---
-# 現在の RA プレフィックスを取得 (API: data.prefix.{prefix_name} の構造)
-RA_JSON=$(curl -sk --connect-timeout 3 -X POST "$API_URL/retrieve" \
+# RA 設定からプレフィックスを動的検出
+RA_HTTP_CODE=$(curl -sk --connect-timeout 3 -o /tmp/v6-health-ra.json -w '%{http_code}' \
+    -X POST "$API_URL/retrieve" \
     -d "{\"key\":\"$API_KEY\",\"op\":\"showConfig\",\"path\":[\"service\",\"router-advert\",\"interface\",\"eth2.30\",\"prefix\"]}" \
     2>/dev/null)
 
-OPTAGE_PREFIX=$(echo "$RA_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-prefixes = d.get('data', {}).get('prefix', {})
-for k in prefixes:
-    if k.startswith('2001:ce8:'):
-        print(k)
-        break
-" 2>/dev/null)
+if [ "$RA_HTTP_CODE" != "200" ]; then
+    log "ERROR: RA config retrieval failed (HTTP $RA_HTTP_CODE), aborting health check"
+    exit 1
+fi
 
-GCP_PREFIX=$(echo "$RA_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-prefixes = d.get('data', {}).get('prefix', {})
-for k in prefixes:
-    if not k.startswith('2001:ce8:'):
-        print(k)
-        break
-" 2>/dev/null)
+RA_JSON=$(cat /tmp/v6-health-ra.json)
+if ! echo "$RA_JSON" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+    log "ERROR: RA config response is not valid JSON, aborting health check"
+    exit 1
+fi
 
-# OPTAGE 出口チェック
+# prefix_hint に前方一致するプレフィックスを RA 設定から検出し、::1 をソースアドレスとする
+detect_prefix() {
+    local hint="$1"
+    echo "$RA_JSON" | python3 -c "
+import sys, json
+hint = sys.argv[1]
+d = json.load(sys.stdin)
+for k in d.get('data', {}).get('prefix', {}):
+    if k.startswith(hint):
+        print(k); break
+" "$hint" 2>/dev/null
+}
+
+src_from_prefix() {
+    python3 -c "
+import sys, ipaddress
+net = ipaddress.IPv6Network(sys.argv[1])
+print(net.network_address + 1)
+" "$1" 2>/dev/null
+}
+
+OPTAGE_PREFIX=$(detect_prefix "2001:ce8:")
+GCP_PREFIX=$(detect_prefix "$GCP_PREFIX_HINT")
+
+OPTAGE_SRC=""
+GCP_SRC=""
+
 if [ -n "$OPTAGE_PREFIX" ]; then
-    # プレフィックスからルーターアドレスを取得 (::1)
-    OPTAGE_SRC=$(python3 -c "
-import ipaddress
-net = ipaddress.IPv6Network('${OPTAGE_PREFIX}')
-print(str(net.network_address) + '1')
-" 2>/dev/null)
-
-    if probe_exit "optage" "$OPTAGE_SRC"; then
-        # 成功
-        echo 0 > "$STATE_DIR/optage_fail"
-        OK_COUNT=$(get_ok_count optage)
-        OK_COUNT=$((OK_COUNT + 1))
-        echo "$OK_COUNT" > "$STATE_DIR/optage_ok"
-
-        if [ "$(get_status optage)" = "down" ] && [ "$OK_COUNT" -ge "$OK_THRESHOLD" ]; then
-            log "OPTAGE exit RECOVERED ($OK_COUNT consecutive OK)"
-            restore_prefix "$OPTAGE_PREFIX"
-            echo "up" > "$STATE_DIR/optage_status"
-        fi
-    else
-        # 失敗
-        echo 0 > "$STATE_DIR/optage_ok"
-        FAIL_COUNT=$(get_fail_count optage)
-        FAIL_COUNT=$((FAIL_COUNT + 1))
-        echo "$FAIL_COUNT" > "$STATE_DIR/optage_fail"
-
-        if [ "$(get_status optage)" = "up" ] && [ "$FAIL_COUNT" -ge "$FAIL_THRESHOLD" ]; then
-            log "OPTAGE exit FAILED ($FAIL_COUNT consecutive failures)"
-            deprecate_prefix "$OPTAGE_PREFIX"
-            echo "down" > "$STATE_DIR/optage_status"
-        fi
-    fi
+    OPTAGE_SRC=$(src_from_prefix "$OPTAGE_PREFIX")
+else
+    log "WARNING: OPTAGE prefix not found in RA config (hint=2001:ce8:), skipping optage check"
 fi
 
-# GCP 出口チェック (プレフィックス未設定時はスキップ)
 if [ -n "$GCP_PREFIX" ]; then
-    GCP_SRC=$(python3 -c "
-import ipaddress
-net = ipaddress.IPv6Network('${GCP_PREFIX}')
-print(str(net.network_address) + '1')
-" 2>/dev/null)
-
-    if probe_exit "gcp" "$GCP_SRC"; then
-        echo 0 > "$STATE_DIR/gcp_fail"
-        OK_COUNT=$(get_ok_count gcp)
-        OK_COUNT=$((OK_COUNT + 1))
-        echo "$OK_COUNT" > "$STATE_DIR/gcp_ok"
-
-        if [ "$(get_status gcp)" = "down" ] && [ "$OK_COUNT" -ge "$OK_THRESHOLD" ]; then
-            log "GCP exit RECOVERED ($OK_COUNT consecutive OK)"
-            restore_prefix "$GCP_PREFIX"
-            echo "up" > "$STATE_DIR/gcp_status"
-        fi
-    else
-        echo 0 > "$STATE_DIR/gcp_ok"
-        FAIL_COUNT=$(get_fail_count gcp)
-        FAIL_COUNT=$((FAIL_COUNT + 1))
-        echo "$FAIL_COUNT" > "$STATE_DIR/gcp_fail"
-
-        if [ "$(get_status gcp)" = "up" ] && [ "$FAIL_COUNT" -ge "$FAIL_THRESHOLD" ]; then
-            log "GCP exit FAILED ($FAIL_COUNT consecutive failures)"
-            deprecate_prefix "$GCP_PREFIX"
-            echo "down" > "$STATE_DIR/gcp_status"
-        fi
-    fi
+    GCP_SRC=$(src_from_prefix "$GCP_PREFIX")
+else
+    log "WARNING: GCP prefix not found in RA config (hint=$GCP_PREFIX_HINT), skipping gcp check"
 fi
+
+# チェック実行
+check_exit "optage" "$OPTAGE_PREFIX" "$OPTAGE_SRC" "$OPTAGE_RESTORE_MODE" "" ""
+check_exit "gcp"    "$GCP_PREFIX"    "$GCP_SRC"    "$GCP_RESTORE_MODE"    "$GCP_PREFERRED_LIFETIME" "$GCP_VALID_LIFETIME"
+
+log "=== health check end ==="

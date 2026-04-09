@@ -29,13 +29,14 @@
 |--------|--------|------|--------|------|------|
 | XSGe 0/1 | 他スイッチ (sw02 等) | T1 | trunk | 11,30,40 (native 11) | 10G fiber スイッチ間接続 |
 | XSGe 0/2 | 他スイッチ (sw02 等) | T1 | trunk | 11,30,40 (native 11) | 10G fiber スイッチ間接続 |
-| 5Ge 0/1 | WLC (Cisco 3504) | T1 | trunk | 11,30,40 (native 11) | FlexConnect AP 管理 |
+| 5Ge 0/1 | AP (Aironet 3800) | T2 | trunk | 11,30,40 (native 11) | mGig 対応 AP、PoE+ 給電 |
 | 5Ge 0/2 | Proxmox (r1-home / r3-vyos) | T1 | trunk | 11,30,40 (native なし) | VM 基盤トランク (1GbE ネゴ)。Proxmox PVID=1 のため VLAN 11 は tagged で通す |
-| Ge 0/3–8 | AP (Aironet 3800) | T2 | trunk | 11,30,40 (native 11) | SSID ローカルスイッチング、PoE+ 給電、6 台まで |
+| Ge 0/3–7 | AP (Aironet 3800) | T2 | trunk | 11,30,40 (native 11) | SSID ローカルスイッチング、PoE+ 給電 |
+| Ge 0/8 | WLC (Cisco 3504) | T1 | trunk | 11,30,40 (native 11) | FlexConnect 制御プレーンのみ、PoE 不要 |
 | Ge 0/9 | 配信 PC、スピーカー | T3 | access | 30 | 運営有線 |
 | Ge 0/10 | 来場者有線 | T3 | access | 40 | ユーザー有線 |
 
-**AP 収容数**: sw01 では PoE+ ポート数 (Ge 0/3–8) の制約で最大 6 台。残り 14 台は sw02 および追加 PoE スイッチ経由で収容。
+**AP 収容数**: sw01 では 5Ge 0/1 + Ge 0/3–7 の計 6 台。5Ge 接続の AP は mGig (2.5G/5G) でリンクアップ可能。残り 14 台は sw02 および追加 PoE スイッチ経由で収容。
 
 ## コンフィグ
 
@@ -88,13 +89,15 @@ interface XSGigabitEthernet 0/2
  switchport trunk native vlan 11
  no shutdown
 
-! 5Ge 0/1: WLC (Cisco 3504)
+! 5Ge 0/1: AP (Aironet 3800, mGig)
 interface FiveGigabitEthernet 0/1
- description T1-Trunk-WLC3504
+ description T2-AP-Aironet3800-mGig
  switchport mode trunk
  switchport trunk allowed vlan 11,30,40
  switchport trunk native vlan 11
- no poe enable
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ poe enable
  no shutdown
 
 ! 5Ge 0/2: Proxmox (r1-home / r3-vyos VM 基盤)
@@ -111,8 +114,8 @@ interface FiveGigabitEthernet 0/2
 ! Type T2: AP Trunk ポート (FlexConnect / SSID ローカルスイッチング)
 ! ============================================================
 
-! Ge 0/3-8: AP (Aironet 3800) — trunk、SSID → VLAN 振り分けは AP 側
-interface range GigabitEthernet 0/3-8
+! Ge 0/3-7: AP (Aironet 3800) — trunk、SSID → VLAN 振り分けは AP 側
+interface range GigabitEthernet 0/3-7
  description T2-AP-Aironet3800
  switchport mode trunk
  switchport trunk allowed vlan 11,30,40
@@ -120,6 +123,15 @@ interface range GigabitEthernet 0/3-8
  spanning-tree portfast
  spanning-tree bpduguard enable
  poe enable
+ no shutdown
+
+! Ge 0/8: WLC (Cisco 3504) — FlexConnect 制御プレーンのみ
+interface GigabitEthernet 0/8
+ description T1-Trunk-WLC3504
+ switchport mode trunk
+ switchport trunk allowed vlan 11,30,40
+ switchport trunk native vlan 11
+ no poe enable
  no shutdown
 
 ! ============================================================
@@ -172,7 +184,9 @@ ipv6 access-list RA-GUARD-DENY
  permit ipv6 any any
 
 ! T2 ポート (AP) に適用
-interface range GigabitEthernet 0/3-8
+interface FiveGigabitEthernet 0/1
+ ipv6 traffic-filter RA-GUARD-DENY in
+interface range GigabitEthernet 0/3-7
  ipv6 traffic-filter RA-GUARD-DENY in
 
 ! T3 ポート (端末) に適用
@@ -228,7 +242,8 @@ r1-home / r3-vyos はいずれも Proxmox 内 VM のため、デフォルト GW 
 ## 設計メモ
 
 - **XSGe 0/1–0/2 をスイッチ間接続に使用**: 10G fiber (SFP+) で sw02 等の他スイッチとの ISL (Inter-Switch Link) に使用
-- **5Ge ポートに WLC/Proxmox を収容**: 5Ge 0/1 に WLC、5Ge 0/2 に Proxmox (r1-home / r3-vyos は Proxmox 内の VM)。1GbE 機器でも auto-negotiate で接続可能。Ge ポートを AP/有線用に確保
+- **5Ge 0/1 に mGig 対応 AP を収容**: Aironet 3800 は mGig 対応のため 5Ge で 2.5G/5G リンクが可能。帯域が集中する AP を 5Ge に接続し、制御プレーンのみの WLC は Ge 0/8 に配置
+- **5Ge 0/2 に Proxmox を収容**: r1-home / r3-vyos は Proxmox 内の VM。1GbE ネゴで接続
 - **STP priority 4096**: sw01 を MST instance 0 のプライマリルートブリッジに指定 (sw02 は 8192 でセカンダリ)。MSTP (IEEE 802.1s) を使用し、全 VLAN を IST に収容
 - **BPDU guard を AP/端末ポートに**: portfast 系ポートで BPDU を受信したら即座に errdisable 化、誤接続による L2 ループを防止
 

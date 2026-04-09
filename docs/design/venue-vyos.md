@@ -33,8 +33,8 @@ VM リソース: 3 vCPU, 4GB RAM。詳細は [`venue-proxmox.md`](venue-proxmox.
 | VIF | VLAN ID | アドレス (v4) | IPv6 | 用途 |
 |-----|---------|--------------|------|------|
 | eth2.11 | 11 | 192.168.11.1/24 | なし | 管理 (mgmt) |
-| eth2.30 | 30 | 192.168.30.1/24 | DHCPv6-PD /64 | 運営 (staff + live) |
-| eth2.40 | 40 | 192.168.40.1/22 | DHCPv6-PD /64 | 来場者 (user) |
+| eth2.30 | 30 | 192.168.30.1/24 | OPTAGE /64 `::1`, GCP /64 `::1` | 運営 (staff + live) |
+| eth2.40 | 40 | 192.168.40.1/22 | OPTAGE /64 `::2`, GCP /64 `::2` | 来場者 (user) |
 
 ### WireGuard
 
@@ -68,10 +68,12 @@ set interfaces ethernet eth2 vif 11 description 'VLAN 11 - mgmt'
 
 # VLAN 30 (staff + live)
 set interfaces ethernet eth2 vif 30 address 192.168.30.1/24
+set interfaces ethernet eth2 vif 30 address <gcp-prefix>::1/64
 set interfaces ethernet eth2 vif 30 description 'VLAN 30 - staff + live'
 
 # VLAN 40 (user)
 set interfaces ethernet eth2 vif 40 address 192.168.40.1/22
+set interfaces ethernet eth2 vif 40 address <gcp-prefix>::2/64
 set interfaces ethernet eth2 vif 40 description 'VLAN 40 - user'
 
 # WireGuard (自宅 VPN)
@@ -176,10 +178,21 @@ set service dns forwarding listen-address 192.168.11.1
 set service dns forwarding listen-address 192.168.30.1
 set service dns forwarding listen-address 192.168.40.1
 set service dns forwarding listen-address 127.0.0.1
+
+# IPv6 listen-address (OPTAGE /64 + GCP /64)
+set service dns forwarding listen-address <optage-prefix>::1
+set service dns forwarding listen-address <optage-prefix>::2
+set service dns forwarding listen-address <gcp-prefix>::1
+set service dns forwarding listen-address <gcp-prefix>::2
+
 set service dns forwarding allow-from 192.168.11.0/24
 set service dns forwarding allow-from 192.168.30.0/24
 set service dns forwarding allow-from 192.168.40.0/22
 set service dns forwarding allow-from 127.0.0.0/8
+
+# IPv6 allow-from
+set service dns forwarding allow-from <optage-prefix>::/64
+set service dns forwarding allow-from <gcp-prefix>::/64
 
 # クエリログ有効化 (法執行対応)
 set service dns forwarding options 'log-common-errors=yes'
@@ -189,35 +202,60 @@ set service dns forwarding options 'logging-facility=0'
 
 ## 4. IPv6 / RA / DHCPv6
 
-OPTAGE から DHCPv6-PD で取得した /64 を自宅 r1 経由で受け取り、VLAN 30/40 で共有。VLAN 11 は v4 only。
+### デュアルプレフィックス構成
+
+VLAN 30/40 では **2 つの IPv6 GUA プレフィックス** を RA で同時広告する:
+
+| プレフィックス | 取得元 | 経路 | preferred-lifetime | valid-lifetime |
+|---|---|---|---|---|
+| OPTAGE /64 (`<optage-prefix>::/64`) | r1 DHCPv6-PD | wg0 → r1 → OPTAGE → Internet | 14400 (4h) | 86400 (24h) |
+| GCP /64 (`2600:1900:41d1:92::/64`) | GCP サブネット (venue-v6-transit) | wg1 → r2-gcp → NAT66 → Google backbone | 1800 (30m) | 14400 (4h) |
+
+端末は SLAAC で両プレフィックスの GUA を取得する。OS の source address selection (RFC 6724) で通常は preferred-lifetime が長い OPTAGE が優先される。r3 の source-based PBR (セクション 4a) で src prefix に応じて出口を振り分けるため、どちらが選ばれても通信は成立する。
+
+VLAN 11 は v4 only。
+
+> **RFC 8028 問題**: マルチプレフィックス環境では「プレフィックスとゲートウェイの紐付けが OS 側で保証されない」問題がある。本設計では r3 が唯一のゲートウェイであり、PBR で src prefix を見て振り分けるため、クライアント側の source address selection に依存しない。詳細は [`gcp-integration.md`](gcp-integration.md) セクション 4 を参照。
 
 ### RA (Router Advertisement)
 
-SLAAC (iOS/Android) と DHCPv6 (Windows/macOS) を併用する。
+SLAAC のみでアドレス配布する (DHCPv6 は廃止済み、後述)。
 
 | フラグ | 値 | 効果 |
 |---|---|---|
 | A (autonomous) | 1 | SLAAC 有効 |
-| M (managed) | 1 | DHCPv6 アドレス割り当て |
-| O (other-config) | 1 | DHCPv6 で DNS 等取得 |
+| ~~M (managed)~~ | ~~1~~ **0** | ~~DHCPv6 アドレス割り当て~~ 廃止 (iOS/Android 非対応) |
+| O (other-config) | 1 | RDNSS 非対応クライアントの保険 |
 | RDNSS | 設定 | Android DNS 解決に必須 |
 
 ```
-# === RA ===
+# === RA (デュアルプレフィックス) ===
 
-# VLAN 30
-set service router-advert interface eth2.30 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.30 managed-flag true
+# VLAN 30 — OPTAGE /64 (優先: preferred-lifetime 長め)
+set service router-advert interface eth2.30 prefix <optage-prefix>::/64 preferred-lifetime 14400
+set service router-advert interface eth2.30 prefix <optage-prefix>::/64 valid-lifetime 86400
+
+# VLAN 30 — GCP /64 (非優先: preferred-lifetime 短め → RFC 6724 で後回し)
+set service router-advert interface eth2.30 prefix 2600:1900:41d1:92::/64 preferred-lifetime 1800
+set service router-advert interface eth2.30 prefix 2600:1900:41d1:92::/64 valid-lifetime 14400
+
+# VLAN 30 — 共通フラグ (M flag なし — SLAAC のみ)
 set service router-advert interface eth2.30 other-config-flag true
-set service router-advert interface eth2.30 name-server <prefix>::1
+set service router-advert interface eth2.30 name-server <optage-prefix>::1
 set service router-advert interface eth2.30 interval max 60
 set service router-advert interface eth2.30 interval min 20
 
-# VLAN 40
-set service router-advert interface eth2.40 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.40 managed-flag true
+# VLAN 40 — OPTAGE /64
+set service router-advert interface eth2.40 prefix <optage-prefix>::/64 preferred-lifetime 14400
+set service router-advert interface eth2.40 prefix <optage-prefix>::/64 valid-lifetime 86400
+
+# VLAN 40 — GCP /64
+set service router-advert interface eth2.40 prefix 2600:1900:41d1:92::/64 preferred-lifetime 1800
+set service router-advert interface eth2.40 prefix 2600:1900:41d1:92::/64 valid-lifetime 14400
+
+# VLAN 40 — 共通フラグ
 set service router-advert interface eth2.40 other-config-flag true
-set service router-advert interface eth2.40 name-server <prefix>::1
+set service router-advert interface eth2.40 name-server <optage-prefix>::2
 set service router-advert interface eth2.40 interval max 60
 set service router-advert interface eth2.40 interval min 20
 ```
@@ -276,14 +314,22 @@ set firewall ipv6 input filter rule 30 jump-target BLOCK-CLIENT-RA
 set firewall ipv6 input filter rule 30 inbound-interface name eth2.40
 ```
 
-### DHCPv6
+### ~~DHCPv6~~ (廃止)
 
-Windows/macOS 向け。iOS/Android は DHCPv6 IA_NA 非対応のため SLAAC のみ。
+DHCPv6 によるアドレス配布は **廃止**。理由:
 
-VLAN 30/40 が同一 /64 を共有するため、VyOS の制約 (同一サブネットを複数 shared-network に定義不可) により **統合プール (V6-POOL)** で運用する。range タグ (`staff` / `user`) でアドレス範囲を論理分離。
+- iOS/Android が DHCPv6 IA_NA (アドレス割当) 非対応 → SLAAC 必須
+- RFC 6724 によりソースアドレス選択は OS 依存 → DHCPv6 アドレスが PBR に使われる保証なし
+- 法執行機関対応の MAC↔IPv6 追跡は NDP テーブル dump でカバー済み
+- kea が VIF の `interface` 指定に VyOS CLI で対応しておらず運用が複雑
+
+アドレス配布は **SLAAC (A flag) に統一**し、DNS は **RDNSS + O flag** で配布する。
+
+<details>
+<summary>旧 DHCPv6 設定 (参考、削除済み)</summary>
 
 ```
-# === DHCPv6 (統合プール) ===
+# === DHCPv6 (統合プール) === ※廃止
 
 set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 range staff start <prefix>::1000
 set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 range staff stop <prefix>::ffff
@@ -293,20 +339,57 @@ set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>:
 set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 option name-server <prefix>::1
 ```
 
-> **注**: `<delegated-prefix>` と `<prefix>` は r1 の DHCPv6-PD で取得した /64 に依存し動的に変わる。[`pd-update-venue.sh`](../../scripts/pd-update-venue.sh) が自動投入するため、手動設定は不要。
+</details>
+
+### 4a. Source-based PBR (IPv6)
+
+GCP /64 を src とするパケットを wg1 (r2-gcp) 経由に強制する。OPTAGE /64 src のパケットはデフォルトルート (wg0 → r1) を使用するため、追加設定不要。
+
+`policy local-route6` は `ip -6 rule` を生成し、転送パケットにも適用される。VyOS の `policy route6` はインターフェース適用 (VIF) に対応していないため、`local-route6` を使用する。
+
+```
+# === PBR: GCP /64 src → r2-gcp ===
+
+# ip -6 rule: src が GCP /64 なら table 100 を参照
+set policy local-route6 rule 10 source address 2600:1900:41d1:92::/64
+set policy local-route6 rule 10 set table 100
+
+# テーブル 100: デフォルトルートを r2-gcp (wg1) に向ける
+set protocols static table 100 route6 ::/0 next-hop fd00:255:2::2
+```
 
 ## 5. ndppd (NDP Proxy)
 
 VLAN 30/40 が同一 /64 を共有するため、インバウンド IPv6 の Neighbor Solicitation を正しいインターフェースに振り分ける。VyOS CLI 外の設定ファイル。ndppd は L2MC テーブル枯渇対策としても効果がある — WireGuard トンネル越しの NS/NA をインターフェース単位で代理応答することで、マルチキャストグループの生成を上流に伝播させない。
 
+デュアルプレフィックス構成のため、OPTAGE /64 (wg0 経由) と GCP /64 (wg1 経由) の両方について proxy ルールを定義する。
+
 ```
 # /etc/ndppd.conf
 proxy wg0 {
-    rule <delegated-prefix>::/64 {
+    rule <optage-prefix>::/64 {
         iface eth2.30
         iface eth2.40
     }
 }
+
+proxy wg1 {
+    rule 2600:1900:41d1:92::/64 {
+        iface eth2.30
+        iface eth2.40
+    }
+}
+```
+
+### ndppd の永続化
+
+ndppd の systemd unit は `/run/ndppd/ndppd.conf` を参照するため (`ConditionPathExists`)、`/etc/ndppd.conf` をマスターとし、ブートスクリプトでコピーする:
+
+```bash
+# /config/scripts/vyos-postconfig-bootup.script に追記
+mkdir -p /run/ndppd
+cp /etc/ndppd.conf /run/ndppd/ndppd.conf
+systemctl start ndppd || true
 ```
 
 ## 6. BGP
@@ -745,8 +828,10 @@ set interfaces ethernet eth2 hw-id 'bc:24:11:ea:46:88'
 set interfaces ethernet eth2 vif 11 address 192.168.11.1/24
 set interfaces ethernet eth2 vif 11 description 'VLAN 11 - mgmt'
 set interfaces ethernet eth2 vif 30 address 192.168.30.1/24
+set interfaces ethernet eth2 vif 30 address <gcp-prefix>::1/64
 set interfaces ethernet eth2 vif 30 description 'VLAN 30 - staff + live'
 set interfaces ethernet eth2 vif 40 address 192.168.40.1/22
+set interfaces ethernet eth2 vif 40 address <gcp-prefix>::2/64
 set interfaces ethernet eth2 vif 40 description 'VLAN 40 - user'
 
 # --- WireGuard ---
@@ -805,36 +890,50 @@ set service dns forwarding listen-address 192.168.11.1
 set service dns forwarding listen-address 192.168.30.1
 set service dns forwarding listen-address 192.168.40.1
 set service dns forwarding listen-address 127.0.0.1
+set service dns forwarding listen-address <optage-prefix>::1
+set service dns forwarding listen-address <optage-prefix>::2
+set service dns forwarding listen-address <gcp-prefix>::1
+set service dns forwarding listen-address <gcp-prefix>::2
 set service dns forwarding allow-from 192.168.11.0/24
 set service dns forwarding allow-from 192.168.30.0/24
 set service dns forwarding allow-from 192.168.40.0/22
 set service dns forwarding allow-from 127.0.0.0/8
+set service dns forwarding allow-from <optage-prefix>::/64
+set service dns forwarding allow-from <gcp-prefix>::/64
 set service dns forwarding options 'log-common-errors=yes'
 set service dns forwarding options 'quiet=no'
 set service dns forwarding options 'logging-facility=0'
 
-# --- RA ---
-set service router-advert interface eth2.30 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.30 managed-flag true
+# --- RA (デュアルプレフィックス) ---
+# VLAN 30: OPTAGE /64 (優先)
+set service router-advert interface eth2.30 prefix <optage-prefix>::/64 preferred-lifetime 14400
+set service router-advert interface eth2.30 prefix <optage-prefix>::/64 valid-lifetime 86400
+# VLAN 30: GCP /64 (非優先)
+set service router-advert interface eth2.30 prefix 2600:1900:41d1:92::/64 preferred-lifetime 1800
+set service router-advert interface eth2.30 prefix 2600:1900:41d1:92::/64 valid-lifetime 14400
 set service router-advert interface eth2.30 other-config-flag true
-set service router-advert interface eth2.30 name-server <prefix>::1
+set service router-advert interface eth2.30 name-server <optage-prefix>::1
 set service router-advert interface eth2.30 interval max 60
 set service router-advert interface eth2.30 interval min 20
 
-set service router-advert interface eth2.40 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.40 managed-flag true
+# VLAN 40: OPTAGE /64 (優先)
+set service router-advert interface eth2.40 prefix <optage-prefix>::/64 preferred-lifetime 14400
+set service router-advert interface eth2.40 prefix <optage-prefix>::/64 valid-lifetime 86400
+# VLAN 40: GCP /64 (非優先)
+set service router-advert interface eth2.40 prefix 2600:1900:41d1:92::/64 preferred-lifetime 1800
+set service router-advert interface eth2.40 prefix 2600:1900:41d1:92::/64 valid-lifetime 14400
 set service router-advert interface eth2.40 other-config-flag true
-set service router-advert interface eth2.40 name-server <prefix>::1
+set service router-advert interface eth2.40 name-server <optage-prefix>::2
 set service router-advert interface eth2.40 interval max 60
 set service router-advert interface eth2.40 interval min 20
 
-# --- DHCPv6 (統合プール — 同一 /64 制約のため STAFF/USER を分離不可) ---
-set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 range staff start <prefix>::1000
-set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 range staff stop <prefix>::ffff
-set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 range user start <prefix>::1:0
-set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 range user stop <prefix>::1:ffff
-set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 subnet-id 60
-set service dhcpv6-server shared-network-name V6-POOL subnet <delegated-prefix>::/64 option name-server <prefix>::1
+# --- DHCPv6: 廃止 (iOS/Android非対応, ソースアドレス選択制御不可, NDP dumpでカバー) ---
+# delete service dhcpv6-server
+
+# --- PBR: GCP /64 src → r2-gcp ---
+set policy local-route6 rule 10 source address 2600:1900:41d1:92::/64
+set policy local-route6 rule 10 set table 100
+set protocols static table 100 route6 ::/0 next-hop fd00:255:2::2
 
 # --- BGP ---
 set protocols bgp system-as 65001

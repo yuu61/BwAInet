@@ -93,7 +93,7 @@ iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム 
 [誰が]
   VyOS DHCP リースログ    → timestamp + IPv4 ↔ MAC ↔ hostname
   NDP テーブルダンプ       → timestamp + IPv6 ↔ MAC (全デバイス)
-  VyOS DHCPv6 リースログ  → timestamp + IPv6 ↔ DUID (Windows/macOS のみ)
+  ※ DHCPv6 リースログは廃止 (後述「DHCPv6 廃止について」参照)
 
 [何を調べた]
   VyOS DNS クエリログ     → timestamp + client IP + qname + rcode
@@ -174,17 +174,21 @@ set service dhcp-server shared-network-name USER subnet 192.168.40.0/22 name-ser
 set service dhcp-server shared-network-name USER subnet 192.168.40.0/22 lease 3600
 ```
 
-### DHCPv6
+### DHCPv6 (廃止)
 
-```
-set service dhcpv6-server shared-network-name STAFF-V6 subnet <delegated-prefix>::/64 address-range start <prefix>::1000 stop <prefix>::ffff
-set service dhcpv6-server shared-network-name STAFF-V6 subnet <delegated-prefix>::/64 name-server <prefix>::1
-
-set service dhcpv6-server shared-network-name USER-V6 subnet <delegated-prefix>::/64 address-range start <prefix>::1:0 stop <prefix>::1:ffff
-set service dhcpv6-server shared-network-name USER-V6 subnet <delegated-prefix>::/64 name-server <prefix>::1
-```
-
-※ iOS/Android は DHCPv6 IA_NA 非対応のため SLAAC でアドレスを取得する。DHCPv6 は Windows/macOS 用。
+> **廃止**: DHCPv6 サーバーは以下の理由により廃止し、IPv6 アドレス割り当ては SLAAC に一本化した。
+>
+> 1. **iOS/Android が DHCPv6 IA_NA 非対応** — 参加者の大半を占めるモバイルデバイスが DHCPv6 でアドレスを取得できず、SLAAC が必須
+> 2. **RFC 6724 によるソースアドレス選択が OS 依存** — DHCPv6 で割り当てたアドレスが PBR (Policy-Based Routing) に使われる保証がなく、ログ追跡の信頼性が低下する
+> 3. **MAC ↔ IPv6 追跡は NDP テーブルダンプでカバー済み** — SLAAC アドレスであっても NDP ダンプ (セクション 8) で IPv6 ↔ MAC の対応を記録しており、DHCPv6 リースログがなくても法執行機関対応に支障はない
+>
+> 以下の設定は削除済み:
+>
+> ```
+> # (削除済み) DHCPv6 サーバー設定
+> # set service dhcpv6-server shared-network-name STAFF-V6 ...
+> # set service dhcpv6-server shared-network-name USER-V6 ...
+> ```
 
 ### Forensic Log (Kea hook)
 
@@ -374,31 +378,37 @@ grep "conntrack-nat" /var/log/syslog | grep "src=192.168.40.123"
 
 ## 7. VyOS RA 設定
 
-IPv6 アドレス追跡のため、SLAAC と DHCPv6 を併用する。
+IPv6 アドレスは SLAAC で割り当てる。DHCPv6 は廃止したため M flag は無効化済み。
 
 ```
 # VLAN 30
 set interfaces ethernet eth2 vif 30 ipv6 address autoconf
 set service router-advert interface eth2.30 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.30 managed-flag true
 set service router-advert interface eth2.30 other-config-flag true
 set service router-advert interface eth2.30 name-server <prefix>::1
 
 # VLAN 40
 set service router-advert interface eth2.40 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.40 managed-flag true
 set service router-advert interface eth2.40 other-config-flag true
 set service router-advert interface eth2.40 name-server <prefix>::1
 ```
 
+> **変更点**: `managed-flag true` を削除。DHCPv6 サーバー廃止に伴い M flag を無効化し、SLAAC に一本化した。
+
 | フラグ | 値 | 効果 |
 |---|---|---|
-| A (autonomous) | 1 | SLAAC 有効 (iOS/Android 用) |
-| M (managed) | 1 | DHCPv6 アドレス割り当て (Windows/macOS 用) |
-| O (other-config) | 1 | DHCPv6 で DNS 等の追加情報取得 (iOS も対応) |
+| A (autonomous) | 1 | SLAAC 有効 (全 OS 共通) |
+| M (managed) | 0 (デフォルト) | DHCPv6 アドレス割り当て無効 (DHCPv6 廃止のため) |
+| O (other-config) | 1 | DHCPv6 で DNS 等の追加情報取得 (対応 OS 向け) |
 | RDNSS | 設定 | Android の DNS 解決に必須 (DHCPv6 非対応のため) |
 
-### iOS/Android の DHCPv6 非対応について
+### DHCPv6 廃止について
+
+DHCPv6 サーバーは廃止し、IPv6 アドレス割り当ては SLAAC に一本化した。理由は以下の通り:
+
+1. **iOS/Android が DHCPv6 IA_NA 非対応** — 参加者の大半を占めるモバイルデバイスが DHCPv6 でアドレスを取得できない
+2. **RFC 6724 によるソースアドレス選択が OS 依存** — DHCPv6 で割り当てたアドレスが PBR に使われる保証がなく、Windows/macOS でも SLAAC アドレスが選択される場合がある
+3. **MAC ↔ IPv6 追跡は NDP テーブルダンプでカバー済み** — セクション 8 の NDP ダンプにより全デバイスの IPv6 ↔ MAC 対応を記録しており、DHCPv6 リースログは不要
 
 | OS | DHCPv6 IA_NA | SLAAC | RDNSS |
 |---|---|---|---|
@@ -407,7 +417,7 @@ set service router-advert interface eth2.40 name-server <prefix>::1
 | iOS 18 | **非対応** | 対応 | 対応 |
 | Android 15 | **非対応** | 対応 | 対応 (必須) |
 
-iOS/Android は SLAAC のみで IPv6 アドレスを取得するため、NDP テーブルダンプで IPv6 ↔ MAC の対応を記録する必要がある。
+全デバイスが SLAAC で IPv6 アドレスを取得するため、NDP テーブルダンプ (セクション 8) で IPv6 ↔ MAC の対応を記録する。
 
 ## 8. NDP テーブルダンプ
 

@@ -280,71 +280,88 @@ set interfaces wireguard wg1 peer r2-gcp allowed-ips fd00:255:2::/126
 
 ### 7. r3 設定 (会場 VyOS)
 
+#### インターフェースアドレス (GCP /64)
+
+各 VLAN にGCP /64 のアドレスを付与する。unbound (DNS) の listen-address および NDP 解決に必要。
+
+```
+set interfaces ethernet eth2 vif 30 address <gcp-prefix>::1/64
+set interfaces ethernet eth2 vif 40 address <gcp-prefix>::2/64
+```
+
 #### デュアルプレフィックス RA
+
+VyOS の `autonomous-flag` はデフォルト true のため明示指定不要。
 
 ```
 # === RA: OPTAGE /64 (既存) ===
-set service router-advert interface eth2.30 prefix <optage-prefix>::/64 autonomous-flag true
 set service router-advert interface eth2.30 prefix <optage-prefix>::/64 preferred-lifetime 14400
 set service router-advert interface eth2.30 prefix <optage-prefix>::/64 valid-lifetime 86400
 
 # === RA: GCP /64 (新規) ===
-set service router-advert interface eth2.30 prefix <gcp-prefix>::/64 autonomous-flag true
 set service router-advert interface eth2.30 prefix <gcp-prefix>::/64 preferred-lifetime 1800
 set service router-advert interface eth2.30 prefix <gcp-prefix>::/64 valid-lifetime 14400
 
-# 共通フラグ
-set service router-advert interface eth2.30 managed-flag true
+# 共通フラグ (M flag なし — SLAAC のみでアドレス配布)
+# managed-flag は無効: iOS/Android が DHCPv6 非対応のため SLAAC に統一
+# other-config-flag は有効: RDNSS 非対応クライアントの保険
 set service router-advert interface eth2.30 other-config-flag true
 set service router-advert interface eth2.30 name-server <optage-prefix>::1
 
 # VLAN 40 も同様
-set service router-advert interface eth2.40 prefix <optage-prefix>::/64 autonomous-flag true
 set service router-advert interface eth2.40 prefix <optage-prefix>::/64 preferred-lifetime 14400
 set service router-advert interface eth2.40 prefix <optage-prefix>::/64 valid-lifetime 86400
 
-set service router-advert interface eth2.40 prefix <gcp-prefix>::/64 autonomous-flag true
 set service router-advert interface eth2.40 prefix <gcp-prefix>::/64 preferred-lifetime 1800
 set service router-advert interface eth2.40 prefix <gcp-prefix>::/64 valid-lifetime 14400
 
-set service router-advert interface eth2.40 managed-flag true
 set service router-advert interface eth2.40 other-config-flag true
-set service router-advert interface eth2.40 name-server <optage-prefix>::1
+set service router-advert interface eth2.40 name-server <optage-prefix>::2
 ```
 
-#### DHCPv6 (GCP /64 用追加)
+#### DNS (unbound) IPv6 対応
 
-Windows/macOS 向け。GCP /64 からのアドレス割り当てレンジを追加。
+unbound が IPv6 アドレスでも listen するようにする。OPTAGE / GCP 両方のクライアントが名前解決可能になる。
 
 ```
-# === DHCPv6: GCP /64 (新規) ===
+# listen-address (v6 追加)
+set service dns forwarding listen-address <optage-prefix>::1
+set service dns forwarding listen-address <optage-prefix>::2
+set service dns forwarding listen-address <gcp-prefix>::1
+set service dns forwarding listen-address <gcp-prefix>::2
 
-# VLAN 30
-set service dhcpv6-server shared-network-name STAFF-GCP-V6 subnet <gcp-prefix>::/64 address-range start <gcp-prefix>::1000 stop <gcp-prefix>::ffff
-set service dhcpv6-server shared-network-name STAFF-GCP-V6 subnet <gcp-prefix>::/64 name-server <optage-prefix>::1
-
-# VLAN 40
-set service dhcpv6-server shared-network-name USER-GCP-V6 subnet <gcp-prefix>::/64 address-range start <gcp-prefix>::1:0 stop <gcp-prefix>::1:ffff
-set service dhcpv6-server shared-network-name USER-GCP-V6 subnet <gcp-prefix>::/64 name-server <optage-prefix>::1
+# allow-from (v6 追加)
+set service dns forwarding allow-from <optage-prefix>::/64
+set service dns forwarding allow-from <gcp-prefix>::/64
 ```
+
+#### ~~DHCPv6~~ (廃止)
+
+DHCPv6 によるアドレス配布は廃止。理由:
+
+- iOS/Android が DHCPv6 IA_NA (アドレス割当) 非対応 → SLAAC 必須
+- RFC 6724 によりソースアドレス選択は OS 依存 → DHCPv6 アドレスが PBR に使われる保証なし
+- 法執行機関対応の MAC↔IPv6 追跡は NDP テーブル dump でカバー済み
+- kea が VIF の `interface` 指定に VyOS CLI で対応しておらず運用が複雑
+
+アドレス配布は SLAAC (A flag) に統一し、DNS は RDNSS + O flag で配布する。
 
 #### Source-based PBR (IPv6)
 
 GCP /64 を src とするパケットを wg1 (r2-gcp) 経由に強制する。
 
+`policy local-route6` は `ip -6 rule` を生成し、転送パケットにも適用される。
+VyOS の `policy route6` はインターフェース適用 (VIF) に対応していないため、`local-route6` を使用する。
+
 ```
 # === PBR: GCP /64 src → r2-gcp ===
 
-# ポリシールート定義
-set policy route6 GCP-SRC-OUT rule 10 source address <gcp-prefix>::/64
-set policy route6 GCP-SRC-OUT rule 10 set table 100
+# ip -6 rule: src が GCP /64 なら table 100 を参照
+set policy local-route6 rule 10 source address <gcp-prefix>::/64
+set policy local-route6 rule 10 set table 100
 
 # テーブル 100: デフォルトルートを r2-gcp (wg1) に向ける
 set protocols static table 100 route6 ::/0 next-hop fd00:255:2::2
-
-# VLAN 30/40 に適用
-set interfaces ethernet eth2 vif 30 policy route6 GCP-SRC-OUT
-set interfaces ethernet eth2 vif 40 policy route6 GCP-SRC-OUT
 ```
 
 OPTAGE /64 src のパケットはデフォルトルート (wg0 → r1) を使用するため、追加設定不要。
@@ -370,6 +387,16 @@ proxy wg1 {
 }
 ```
 
+ndppd の systemd unit は `/run/ndppd/ndppd.conf` を参照するため (`ConditionPathExists`)、
+`/etc/ndppd.conf` をマスターとし、ブートスクリプトでコピーする:
+
+```bash
+# /config/scripts/vyos-postconfig-bootup.script に追記
+mkdir -p /run/ndppd
+cp /etc/ndppd.conf /run/ndppd/ndppd.conf
+systemctl start ndppd || true
+```
+
 ### 8. r2-gcp 設定 (GCE VyOS)
 
 #### BGP import フィルタ (DENY-DEFAULT)
@@ -390,6 +417,23 @@ set protocols bgp neighbor 10.255.1.1 address-family ipv4-unicast prefix-list im
 set protocols bgp neighbor 10.255.2.1 address-family ipv4-unicast prefix-list import DENY-DEFAULT
 ```
 
+#### BGP import フィルタ (DENY-DEFAULT-V6)
+
+IPv4 の DENY-DEFAULT と同じ理由で、IPv6 の `::/0` も BGP で受け取らないようにする。r1-home が `default-originate` で `::/0` を広告しており、r2-gcp が BGP default (AD20) を受け入れると GCE の static default (`::/0 via fe80::4001:aff:feae:1, eth0`, AD1) が負け、r2 の全 v6 アウトバウンドが wg 経由に吸い込まれる。
+
+```
+# === Default route import フィルタ (IPv6) ===
+set policy prefix-list6 DENY-DEFAULT-V6 rule 10 action deny
+set policy prefix-list6 DENY-DEFAULT-V6 rule 10 prefix ::/0
+
+set policy prefix-list6 DENY-DEFAULT-V6 rule 20 action permit
+set policy prefix-list6 DENY-DEFAULT-V6 rule 20 prefix ::/0
+set policy prefix-list6 DENY-DEFAULT-V6 rule 20 le 128
+
+set protocols bgp neighbor 10.255.1.1 address-family ipv6-unicast prefix-list import DENY-DEFAULT-V6
+set protocols bgp neighbor 10.255.2.1 address-family ipv6-unicast prefix-list import DENY-DEFAULT-V6
+```
+
 #### sshd privilege separation ディレクトリ (起動時修正)
 
 VyOS は `ssh.service` (systemd) を disabled にし、独自に sshd を直接起動する。しかし、systemd の `ExecStartPre` で作成される `/run/sshd` ディレクトリが省略されるため、**VM 再起動後に SSH 接続の子プロセスが `Missing privilege separation directory: /run/sshd` で即死する**。親プロセスは Listen 状態で正常に見えるが、全ての新規接続が `Connection reset` になる。
@@ -402,9 +446,15 @@ mkdir -p /run/sshd
 
 #### IPv6 ルーティング
 
-GCP /64 を WireGuard 経由で r3 に転送する。
+GCP /64 を WireGuard 経由で r3 に転送する。また、GCE が割り当てた /96 を eth0 に設定し、GCE の v6 ゲートウェイ (link-local) 経由のデフォルトルートを追加する。
 
 ```
+# GCE 割り当て /96 を eth0 に設定 (NAT66 の src アドレスとして必要)
+set interfaces ethernet eth0 address 2600:1900:41d0:9d::/96
+
+# IPv6 デフォルトルート (GCE v6 ゲートウェイ経由)
+set protocols static route6 ::/0 next-hop fe80::4001:aff:feae:1 interface eth0
+
 # GCP /64 を r3 へ転送
 set protocols static route6 <gcp-prefix>::/64 next-hop fd00:255:2::1
 
