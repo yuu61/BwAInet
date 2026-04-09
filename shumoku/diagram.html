@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Network Diagram</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #fafafa; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: white; border-bottom: 1px solid #e5e7eb; }
+    .toolbar-title { font-size: 14px; font-weight: 500; color: #374151; }
+    .toolbar-buttons { display: flex; gap: 4px; align-items: center; }
+    .toolbar button { padding: 6px; border: none; background: none; cursor: pointer; border-radius: 6px; color: #6b7280; transition: all 0.15s; }
+    .toolbar button:hover { background: #f3f4f6; color: #374151; }
+    .zoom-text { min-width: 50px; text-align: center; font-size: 13px; font-weight: 500; color: #6b7280; }
+    .container { position: relative; width: 100%; height: calc(100vh - 45px); overflow: hidden; cursor: grab; background: white; background-image: radial-gradient(#e5e7eb 1px, transparent 1px); background-size: 16px 16px; }
+    .container.dragging { cursor: grabbing; }
+    .container > svg { width: 100%; height: 100%; }
+    .branding { position: absolute; bottom: 16px; right: 16px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(255,255,255,0.95); backdrop-filter: blur(8px); border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; font-size: 13px; font-family: system-ui, sans-serif; color: #555; text-decoration: none; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1); z-index: 100; }
+    .branding:hover { color: #222; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .branding-icon { width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; }
+    /* SVG interactive styles */
+    .node { cursor: pointer; }
+    .node:hover rect, .node:hover circle, .node:hover polygon { filter: brightness(0.95); }
+    .port { cursor: pointer; }
+    .link-hit-area { cursor: pointer; }
+    /* Subgraph click for hierarchical navigation */
+    .subgraph[data-has-sheet] { cursor: pointer; }
+    .subgraph[data-has-sheet]:hover > rect { filter: brightness(0.95); }
+    
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <span class="toolbar-title">Network Diagram</span>
+    <div class="toolbar-buttons">
+      <button id="btn-out" title="Zoom Out"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M20 12H4"/></svg></button>
+      <span class="zoom-text" id="zoom">100%</span>
+      <button id="btn-in" title="Zoom In"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg></button>
+      <button id="btn-fit" title="Fit"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg></button>
+      <button id="btn-reset" title="Reset"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg></button>
+    </div>
+  </div>
+  
+  <div class="container" id="container">
+    <svg xmlns="http://www.w3.org/2000/svg"
+  viewBox="-38 -38 1152 860"
+  width="1152"
+  height="860"
+  style="background: #ffffff">
+<defs>
+  <!-- Arrow marker -->
+  <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+  </marker>
+  <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#dc2626" />
+  </marker>
+  <!-- Node shadow: ultra-subtle, almost invisible (modern approach) -->
+  <filter id="node-shadow" x="-10%" y="-10%" width="120%" height="120%">
+    <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#101828" flood-opacity="0.06"/>
+  </filter>
+</defs>
+<style>
+  :root {
+    --shumoku-bg: #ffffff;
+    --shumoku-surface: #f8fafc;
+    --shumoku-text: #1e293b;
+    --shumoku-text-secondary: #64748b;
+    --shumoku-border: #e2e8f0;
+    --shumoku-node-fill: #ffffff;
+    --shumoku-node-stroke: #e2e8f0;
+    --shumoku-link-stroke: #94a3b8;
+    --shumoku-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  /* Node labels: primary name in semibold */
+  .node-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 600; fill: #1e293b; }
+  .node-label-bold { font-weight: 700; }
+  /* Secondary/metadata labels: smaller, monospace for technical info */
+  .node-label-secondary { font-family: ui-monospace, "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace; font-size: 10px; font-weight: 400; fill: #64748b; }
+  .node-icon { color: #64748b; }
+  .subgraph-icon { opacity: 0.9; }
+  /* Subgraph/zone labels: uppercase, letterspaced for modern look */
+  .subgraph-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 11px; font-weight: 700; fill: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+  .link-label { font-family: ui-monospace, "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace; font-size: 10px; fill: #64748b; }
+  .endpoint-label { font-family: ui-monospace, "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace; font-size: 9px; fill: #1e293b; }
+</style>
+<g class="link-group" data-link-id="link-0" data-link-from="r1" data-link-to="r3" data-link-json="{&quot;id&quot;:&quot;link-0&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;r1&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;r3&quot;},&quot;label&quot;:&quot;wg0&quot;}">
+<g class="link-lines">
+<path class="link" data-id="link-0" d="M 767 92 L 767 104 Q 767 112 759 112 L 747 112 Q 739 112 739 120 L 739 152"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 767 92 L 767 104 Q 767 112 759 112 L 747 112 Q 739 112 739 120 L 739 152"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+<text x="753" y="106.5" class="link-label" text-anchor="middle">wg0</text>
+</g>
+<g class="link-group" data-link-id="link-1" data-link-from="r1" data-link-to="r2" data-link-json="{&quot;id&quot;:&quot;link-1&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;r1&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;r2&quot;},&quot;label&quot;:&quot;wg1&quot;}">
+<g class="link-lines">
+<path class="link" data-id="link-1" d="M 795 92 L 795 292"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 795 92 L 795 292"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+<text x="795" y="184" class="link-label" text-anchor="middle">wg1</text>
+</g>
+<g class="link-group" data-link-id="link-2" data-link-from="r3" data-link-to="r2" data-link-json="{&quot;id&quot;:&quot;link-2&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;r3&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;r2&quot;},&quot;label&quot;:&quot;wg1&quot;}">
+<g class="link-lines">
+<path class="link" data-id="link-2" d="M 751 232 L 751 264 Q 751 272 759 272 L 759 272 Q 767 272 767 280 L 767 292"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 751 232 L 751 264 Q 751 272 759 272 L 759 272 Q 767 272 767 280 L 767 292"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+<text x="759" y="261.5" class="link-label" text-anchor="middle">wg1</text>
+</g>
+<g class="link-group" data-link-id="link-3" data-link-from="r3" data-link-to="sw-152" data-link-json="{&quot;id&quot;:&quot;link-3&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;r3&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;sw-152&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-3" d="M 727 232 L 727 237 Q 727 242 722 242 L 309 242 Q 304 242 304 247 L 304 252"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 727 232 L 727 237 Q 727 242 722 242 L 309 242 Q 304 242 304 247 L 304 252"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-4" data-link-from="sw-152" data-link-to="sw-151" data-link-json="{&quot;id&quot;:&quot;link-4&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-152&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;sw-151&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-4" d="M 294 332 L 294 344 Q 294 352 286 352 L 138 352 Q 133 352 133 357 L 133 362"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 294 332 L 294 344 Q 294 352 286 352 L 138 352 Q 133 352 133 357 L 133 362"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-5" data-link-from="sw-152" data-link-to="sw-153-1" data-link-json="{&quot;id&quot;:&quot;link-5&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-152&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;sw-153-1&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-5" d="M 323 332 L 323 337 Q 323 342 328 342 L 677 342 Q 682 342 682 347 L 682 352"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 323 332 L 323 337 Q 323 342 328 342 L 677 342 Q 682 342 682 347 L 682 352"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-6" data-link-from="sw-152" data-link-to="sw-161" data-link-json="{&quot;id&quot;:&quot;link-6&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-152&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;sw-161&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-6" d="M 314 332 L 314 344 Q 314 352 322 352 L 407 352 Q 412 352 412 357 L 412 362"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 314 332 L 314 344 Q 314 352 322 352 L 407 352 Q 412 352 412 357 L 412 362"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-7" data-link-from="sw-153-1" data-link-to="sw-153-2" data-link-json="{&quot;id&quot;:&quot;link-7&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-153-1&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;sw-153-2&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-7" d="M 704 432 L 704 437 Q 704 442 709 442 L 928 442 Q 936 442 936 450 L 936 462"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 704 432 L 704 437 Q 704 442 709 442 L 928 442 Q 936 442 936 450 L 936 462"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-8" data-link-from="sw-161" data-link-to="sw-162" data-link-json="{&quot;id&quot;:&quot;link-8&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-161&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;sw-162&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-8" d="M 427 442 L 427 447 Q 427 452 432 452 L 567 452 Q 575 452 575 460 L 575 472"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 427 442 L 427 447 Q 427 452 432 452 L 567 452 Q 575 452 575 460 L 575 472"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-9" data-link-from="sw-162" data-link-to="sw-165" data-link-json="{&quot;id&quot;:&quot;link-9&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-162&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;sw-165&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-9" d="M 592 552 L 592 557 Q 592 562 597 562 L 717 562 Q 725 562 725 570 L 725 582"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 592 552 L 592 557 Q 592 562 597 562 L 717 562 Q 725 562 725 570 L 725 582"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-10" data-link-from="sw-151" data-link-to="ap-151-1" data-link-json="{&quot;id&quot;:&quot;link-10&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-151&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-151-1&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-10" d="M 123 442 L 123 447 Q 123 452 118 452 L 56 452 Q 51 452 51 457 L 51 462"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 123 442 L 123 447 Q 123 452 118 452 L 56 452 Q 51 452 51 457 L 51 462"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-11" data-link-from="sw-151" data-link-to="ap-152-2" data-link-json="{&quot;id&quot;:&quot;link-11&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-151&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-152-2&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-11" d="M 143 442 L 143 472"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 143 442 L 143 472"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-12" data-link-from="sw-153-1" data-link-to="ap-153-1" data-link-json="{&quot;id&quot;:&quot;link-12&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-153-1&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-153-1&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-12" d="M 660 432 L 660 472"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 660 432 L 660 472"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-13" data-link-from="sw-153-1" data-link-to="ap-153-2" data-link-json="{&quot;id&quot;:&quot;link-13&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-153-1&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-153-2&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-13" d="M 675 432 L 675 454 Q 675 462 683 462 L 747 462 Q 752 462 752 467 L 752 472"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 675 432 L 675 454 Q 675 462 683 462 L 747 462 Q 752 462 752 467 L 752 472"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-14" data-link-from="sw-153-1" data-link-to="ap-153-3" data-link-json="{&quot;id&quot;:&quot;link-14&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-153-1&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-153-3&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-14" d="M 689 432 L 689 444 Q 689 452 697 452 L 839 452 Q 844 452 844 457 L 844 462"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 689 432 L 689 444 Q 689 452 697 452 L 839 452 Q 844 452 844 457 L 844 462"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-15" data-link-from="sw-153-2" data-link-to="ap-153-4" data-link-json="{&quot;id&quot;:&quot;link-15&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-153-2&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-153-4&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-15" d="M 954 542 L 954 547 Q 954 552 959 552 L 1023 552 Q 1028 552 1028 557 L 1028 562"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 954 542 L 954 547 Q 954 552 959 552 L 1023 552 Q 1028 552 1028 557 L 1028 562"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-16" data-link-from="sw-153-2" data-link-to="ap-153-5" data-link-json="{&quot;id&quot;:&quot;link-16&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-153-2&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-153-5&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-16" d="M 936 542 L 936 572"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 936 542 L 936 572"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-17" data-link-from="sw-153-2" data-link-to="ap-153-6" data-link-json="{&quot;id&quot;:&quot;link-17&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-153-2&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-153-6&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-17" d="M 918 542 L 918 554 Q 918 562 910 562 L 849 562 Q 844 562 844 567 L 844 572"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 918 542 L 918 554 Q 918 562 910 562 L 849 562 Q 844 562 844 567 L 844 572"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-18" data-link-from="sw-161" data-link-to="ap-161-1" data-link-json="{&quot;id&quot;:&quot;link-18&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-161&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-161-1&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-18" d="M 398 442 L 398 472"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 398 442 L 398 472"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-19" data-link-from="sw-161" data-link-to="ap-161-2" data-link-json="{&quot;id&quot;:&quot;link-19&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-161&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-161-2&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-19" d="M 412 442 L 412 454 Q 412 462 420 462 L 485 462 Q 490 462 490 467 L 490 472"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 412 442 L 412 454 Q 412 462 420 462 L 485 462 Q 490 462 490 467 L 490 472"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-20" data-link-from="sw-162" data-link-to="ap-162" data-link-json="{&quot;id&quot;:&quot;link-20&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-162&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-162&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-20" d="M 558 552 L 558 557 Q 558 562 553 562 L 499 562 Q 491 562 491 570 L 491 582"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 558 552 L 558 557 Q 558 562 553 562 L 499 562 Q 491 562 491 570 L 491 582"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-21" data-link-from="sw-162" data-link-to="ap-163" data-link-json="{&quot;id&quot;:&quot;link-21&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-162&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-163&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-21" d="M 581 552 L 581 564 Q 581 572 589 572 L 642 572 Q 647 572 647 577 L 647 582"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 581 552 L 581 564 Q 581 572 589 572 L 642 572 Q 647 572 647 577 L 647 582"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-22" data-link-from="sw-162" data-link-to="ap-164" data-link-json="{&quot;id&quot;:&quot;link-22&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-162&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-164&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-22" d="M 569 552 L 569 582"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 569 552 L 569 582"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-23" data-link-from="sw-165" data-link-to="ap-165-1" data-link-json="{&quot;id&quot;:&quot;link-23&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-165&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-165-1&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-23" d="M 735 662 L 735 674 Q 735 682 743 682 L 812 682 Q 817 682 817 687 L 817 692"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 735 662 L 735 674 Q 735 682 743 682 L 812 682 Q 817 682 817 687 L 817 692"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-24" data-link-from="sw-165" data-link-to="ap-165-2" data-link-json="{&quot;id&quot;:&quot;link-24&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-165&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-165-2&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-24" d="M 744 662 L 744 667 Q 744 672 749 672 L 904 672 Q 909 672 909 677 L 909 682"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 744 662 L 744 667 Q 744 672 749 672 L 904 672 Q 909 672 909 677 L 909 682"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-25" data-link-from="sw-165" data-link-to="ap-jihanki" data-link-json="{&quot;id&quot;:&quot;link-25&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-165&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-jihanki&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-25" d="M 706 662 L 706 667 Q 706 672 701 672 L 542 672 Q 534 672 534 680 L 534 692"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 706 662 L 706 667 Q 706 672 701 672 L 542 672 Q 534 672 534 680 L 534 692"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-26" data-link-from="sw-165" data-link-to="ap-165-3" data-link-json="{&quot;id&quot;:&quot;link-26&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-165&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-165-3&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-26" d="M 715 662 L 715 674 Q 715 682 707 682 L 638 682 Q 633 682 633 687 L 633 692"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 715 662 L 715 674 Q 715 682 707 682 L 638 682 Q 633 682 633 687 L 633 692"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-27" data-link-from="sw-165" data-link-to="ap-165-4" data-link-json="{&quot;id&quot;:&quot;link-27&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-165&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;ap-165-4&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-27" d="M 725 662 L 725 692"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 725 662 L 725 692"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-28" data-link-from="sw-152" data-link-to="pve" data-link-json="{&quot;id&quot;:&quot;link-28&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-152&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;pve&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-28" d="M 304 332 L 304 362"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 304 332 L 304 362"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-29" data-link-from="pve" data-link-to="zabbix" data-link-json="{&quot;id&quot;:&quot;link-29&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;pve&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;zabbix&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-29" d="M 313 442 L 313 472"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 313 442 L 313 472"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-30" data-link-from="pve" data-link-to="shumoku" data-link-json="{&quot;id&quot;:&quot;link-30&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;pve&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;shumoku&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-30" d="M 295 442 L 295 447 Q 295 452 290 452 L 237 452 Q 232 452 232 457 L 232 462"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 295 442 L 295 447 Q 295 452 290 452 L 237 452 Q 232 452 232 457 L 232 462"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="link-group" data-link-id="link-31" data-link-from="sw-152" data-link-to="wlc-3504" data-link-json="{&quot;id&quot;:&quot;link-31&quot;,&quot;from&quot;:{&quot;node&quot;:&quot;sw-152&quot;},&quot;to&quot;:{&quot;node&quot;:&quot;wlc-3504&quot;}}">
+<g class="link-lines">
+<path class="link" data-id="link-31" d="M 285 332 L 285 337 Q 285 342 280 342 L 53 342 Q 48 342 48 347 L 48 352"
+  fill="none" stroke="#94a3b8" stroke-width="2"
+  
+   pointer-events="none" />
+<path class="link-hit-area" d="M 285 332 L 285 337 Q 285 342 280 342 L 53 342 Q 48 342 48 347 L 48 352"
+  fill="none" stroke="#94a3b8" stroke-width="2" opacity="0" />
+</g>
+</g>
+<g class="node" data-id="r1" data-device-type="router" data-device-vendor="vyos (as65002)" data-device-json="{&quot;id&quot;:&quot;r1&quot;,&quot;label&quot;:&quot;yuu-Router&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as65002)&quot;,&quot;model&quot;:&quot;&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="r1" data-device-type="router" data-device-vendor="vyos (as65002)" data-device-json="{&quot;id&quot;:&quot;r1&quot;,&quot;label&quot;:&quot;yuu-Router&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as65002)&quot;,&quot;model&quot;:&quot;&quot;}"><rect x="738" y="12" width="86" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="r1" data-device-type="router" data-device-vendor="vyos (as65002)" data-device-json="{&quot;id&quot;:&quot;r1&quot;,&quot;label&quot;:&quot;yuu-Router&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as65002)&quot;,&quot;model&quot;:&quot;&quot;}">
+  <g class="node-icon" transform="translate(761, 20)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h16v8H4V8zm2 2v4h12v-4H6zm1 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="781" y="79.2" class="node-label" text-anchor="middle">yuu-Router</text>
+</g>
+</g>
+<g class="node" data-id="r2" data-device-type="router" data-device-vendor="vyos (as64512)" data-device-json="{&quot;id&quot;:&quot;r2&quot;,&quot;label&quot;:&quot;gcp-Router&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as64512)&quot;,&quot;model&quot;:&quot;&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="r2" data-device-type="router" data-device-vendor="vyos (as64512)" data-device-json="{&quot;id&quot;:&quot;r2&quot;,&quot;label&quot;:&quot;gcp-Router&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as64512)&quot;,&quot;model&quot;:&quot;&quot;}"><rect x="738" y="292" width="86" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="r2" data-device-type="router" data-device-vendor="vyos (as64512)" data-device-json="{&quot;id&quot;:&quot;r2&quot;,&quot;label&quot;:&quot;gcp-Router&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as64512)&quot;,&quot;model&quot;:&quot;&quot;}">
+  <g class="node-icon" transform="translate(761, 300)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h16v8H4V8zm2 2v4h12v-4H6zm1 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="781" y="359.2" class="node-label" text-anchor="middle">gcp-Router</text>
+</g>
+</g>
+<g class="node" data-id="r3" data-device-type="router" data-device-vendor="vyos (as65001)" data-device-model="192.168.11.1" data-device-json="{&quot;id&quot;:&quot;r3&quot;,&quot;label&quot;:&quot;r3-venue&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as65001)&quot;,&quot;model&quot;:&quot;192.168.11.1&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="r3" data-device-type="router" data-device-vendor="vyos (as65001)" data-device-model="192.168.11.1" data-device-json="{&quot;id&quot;:&quot;r3&quot;,&quot;label&quot;:&quot;r3-venue&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as65001)&quot;,&quot;model&quot;:&quot;192.168.11.1&quot;}"><rect x="703" y="152" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="r3" data-device-type="router" data-device-vendor="vyos (as65001)" data-device-model="192.168.11.1" data-device-json="{&quot;id&quot;:&quot;r3&quot;,&quot;label&quot;:&quot;r3-venue&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;vyos (as65001)&quot;,&quot;model&quot;:&quot;192.168.11.1&quot;}">
+  <g class="node-icon" transform="translate(719, 160)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h16v8H4V8zm2 2v4h12v-4H6zm1 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="739" y="219.2" class="node-label" text-anchor="middle">r3-venue</text>
+</g>
+</g>
+<g class="node" data-id="pve" data-device-type="server" data-device-vendor="minipc (proxmox)" data-device-model="192.168.11.3" data-device-json="{&quot;id&quot;:&quot;pve&quot;,&quot;label&quot;:&quot;pve&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;minipc (proxmox)&quot;,&quot;model&quot;:&quot;192.168.11.3&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="pve" data-device-type="server" data-device-vendor="minipc (proxmox)" data-device-model="192.168.11.3" data-device-json="{&quot;id&quot;:&quot;pve&quot;,&quot;label&quot;:&quot;pve&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;minipc (proxmox)&quot;,&quot;model&quot;:&quot;192.168.11.3&quot;}"><rect x="276" y="362" width="56" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="pve" data-device-type="server" data-device-vendor="minipc (proxmox)" data-device-model="192.168.11.3" data-device-json="{&quot;id&quot;:&quot;pve&quot;,&quot;label&quot;:&quot;pve&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;minipc (proxmox)&quot;,&quot;model&quot;:&quot;192.168.11.3&quot;}">
+  <g class="node-icon" transform="translate(284, 370)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4V4zm0 6h16v4H4v-4zm0 6h16v4H4v-4zm2-10v2h2V6H6zm0 6v2h2v-2H6zm0 6v2h2v-2H6zm10-12v2h2V6h-2zm0 6v2h2v-2h-2zm0 6v2h2v-2h-2z"/></svg>
+    </g>
+  <text x="304" y="429.2" class="node-label" text-anchor="middle">pve</text>
+</g>
+</g>
+<g class="node" data-id="zabbix" data-device-type="server" data-device-vendor="ubuntu24.0 (zabbix)" data-device-model="192.168.11.4" data-device-json="{&quot;id&quot;:&quot;zabbix&quot;,&quot;label&quot;:&quot;zabbix&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;ubuntu24.0 (zabbix)&quot;,&quot;model&quot;:&quot;192.168.11.4&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="zabbix" data-device-type="server" data-device-vendor="ubuntu24.0 (zabbix)" data-device-model="192.168.11.4" data-device-json="{&quot;id&quot;:&quot;zabbix&quot;,&quot;label&quot;:&quot;zabbix&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;ubuntu24.0 (zabbix)&quot;,&quot;model&quot;:&quot;192.168.11.4&quot;}"><rect x="284" y="472" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="zabbix" data-device-type="server" data-device-vendor="ubuntu24.0 (zabbix)" data-device-model="192.168.11.4" data-device-json="{&quot;id&quot;:&quot;zabbix&quot;,&quot;label&quot;:&quot;zabbix&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;ubuntu24.0 (zabbix)&quot;,&quot;model&quot;:&quot;192.168.11.4&quot;}">
+  <g class="node-icon" transform="translate(293, 480)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4V4zm0 6h16v4H4v-4zm0 6h16v4H4v-4zm2-10v2h2V6H6zm0 6v2h2v-2H6zm0 6v2h2v-2H6zm10-12v2h2V6h-2zm0 6v2h2v-2h-2zm0 6v2h2v-2h-2z"/></svg>
+    </g>
+  <text x="313" y="539.2" class="node-label" text-anchor="middle">zabbix</text>
+</g>
+</g>
+<g class="node" data-id="shumoku" data-device-type="server" data-device-vendor="ubuntu24.0 (shumoku)" data-device-model="192.168.11.5" data-device-json="{&quot;id&quot;:&quot;shumoku&quot;,&quot;label&quot;:&quot;shumoku&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;ubuntu24.0 (shumoku)&quot;,&quot;model&quot;:&quot;192.168.11.5&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="shumoku" data-device-type="server" data-device-vendor="ubuntu24.0 (shumoku)" data-device-model="192.168.11.5" data-device-json="{&quot;id&quot;:&quot;shumoku&quot;,&quot;label&quot;:&quot;shumoku&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;ubuntu24.0 (shumoku)&quot;,&quot;model&quot;:&quot;192.168.11.5&quot;}"><rect x="199" y="462" width="65" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="shumoku" data-device-type="server" data-device-vendor="ubuntu24.0 (shumoku)" data-device-model="192.168.11.5" data-device-json="{&quot;id&quot;:&quot;shumoku&quot;,&quot;label&quot;:&quot;shumoku&quot;,&quot;type&quot;:&quot;server&quot;,&quot;vendor&quot;:&quot;ubuntu24.0 (shumoku)&quot;,&quot;model&quot;:&quot;192.168.11.5&quot;}">
+  <g class="node-icon" transform="translate(211.5, 470)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4V4zm0 6h16v4H4v-4zm0 6h16v4H4v-4zm2-10v2h2V6H6zm0 6v2h2v-2H6zm0 6v2h2v-2H6zm10-12v2h2V6h-2zm0 6v2h2v-2h-2zm0 6v2h2v-2h-2z"/></svg>
+    </g>
+  <text x="231.5" y="529.2" class="node-label" text-anchor="middle">shumoku</text>
+</g>
+</g>
+<g class="node" data-id="sw-152" data-device-type="router" data-device-vendor="cisco isr 1100" data-device-model="192.168.11.12" data-device-json="{&quot;id&quot;:&quot;sw-152&quot;,&quot;label&quot;:&quot;sw-152&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;cisco isr 1100&quot;,&quot;model&quot;:&quot;192.168.11.12&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="sw-152" data-device-type="router" data-device-vendor="cisco isr 1100" data-device-model="192.168.11.12" data-device-json="{&quot;id&quot;:&quot;sw-152&quot;,&quot;label&quot;:&quot;sw-152&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;cisco isr 1100&quot;,&quot;model&quot;:&quot;192.168.11.12&quot;}"><rect x="275" y="252" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="sw-152" data-device-type="router" data-device-vendor="cisco isr 1100" data-device-model="192.168.11.12" data-device-json="{&quot;id&quot;:&quot;sw-152&quot;,&quot;label&quot;:&quot;sw-152&quot;,&quot;type&quot;:&quot;router&quot;,&quot;vendor&quot;:&quot;cisco isr 1100&quot;,&quot;model&quot;:&quot;192.168.11.12&quot;}">
+  <g class="node-icon" transform="translate(284, 260)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h16v8H4V8zm2 2v4h12v-4H6zm1 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="304" y="319.2" class="node-label" text-anchor="middle">sw-152</text>
+</g>
+</g>
+<g class="node" data-id="wlc-3504" data-device-type="generic" data-device-vendor="cisco wlc 3504" data-device-model="192.168.11.10" data-device-json="{&quot;id&quot;:&quot;wlc-3504&quot;,&quot;label&quot;:&quot;wlc-3504&quot;,&quot;type&quot;:&quot;generic&quot;,&quot;vendor&quot;:&quot;cisco wlc 3504&quot;,&quot;model&quot;:&quot;192.168.11.10&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="wlc-3504" data-device-type="generic" data-device-vendor="cisco wlc 3504" data-device-model="192.168.11.10" data-device-json="{&quot;id&quot;:&quot;wlc-3504&quot;,&quot;label&quot;:&quot;wlc-3504&quot;,&quot;type&quot;:&quot;generic&quot;,&quot;vendor&quot;:&quot;cisco wlc 3504&quot;,&quot;model&quot;:&quot;192.168.11.10&quot;}"><rect x="12" y="352" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="wlc-3504" data-device-type="generic" data-device-vendor="cisco wlc 3504" data-device-model="192.168.11.10" data-device-json="{&quot;id&quot;:&quot;wlc-3504&quot;,&quot;label&quot;:&quot;wlc-3504&quot;,&quot;type&quot;:&quot;generic&quot;,&quot;vendor&quot;:&quot;cisco wlc 3504&quot;,&quot;model&quot;:&quot;192.168.11.10&quot;}">
+  <g class="node-icon" transform="translate(28, 360)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v16H4V4zm2 2v12h12V6H6zm2 2h8v2H8V8zm0 4h8v2H8v-2z"/></svg>
+    </g>
+  <text x="48" y="419.2" class="node-label" text-anchor="middle">wlc-3504</text>
+</g>
+</g>
+<g class="node" data-id="sw-151" data-device-type="l2-switch" data-device-vendor="cisco catalyst-2960s + poeインジェクター" data-device-model="192.168.11.11" data-device-json="{&quot;id&quot;:&quot;sw-151&quot;,&quot;label&quot;:&quot;sw-151&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;cisco catalyst-2960s + poeインジェクター&quot;,&quot;model&quot;:&quot;192.168.11.11&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="sw-151" data-device-type="l2-switch" data-device-vendor="cisco catalyst-2960s + poeインジェクター" data-device-model="192.168.11.11" data-device-json="{&quot;id&quot;:&quot;sw-151&quot;,&quot;label&quot;:&quot;sw-151&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;cisco catalyst-2960s + poeインジェクター&quot;,&quot;model&quot;:&quot;192.168.11.11&quot;}"><rect x="104" y="362" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="sw-151" data-device-type="l2-switch" data-device-vendor="cisco catalyst-2960s + poeインジェクター" data-device-model="192.168.11.11" data-device-json="{&quot;id&quot;:&quot;sw-151&quot;,&quot;label&quot;:&quot;sw-151&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;cisco catalyst-2960s + poeインジェクター&quot;,&quot;model&quot;:&quot;192.168.11.11&quot;}">
+  <g class="node-icon" transform="translate(113, 370)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M3 8h18v8H3V8zm2 2v4h14v-4H5zm2 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="133" y="429.2" class="node-label" text-anchor="middle">sw-151</text>
+</g>
+</g>
+<g class="node" data-id="sw-153-1" data-device-type="l2-switch" data-device-vendor="allied-telesis x230-18gp" data-device-model="192.168.11.13" data-device-json="{&quot;id&quot;:&quot;sw-153-1&quot;,&quot;label&quot;:&quot;sw-153-1&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis x230-18gp&quot;,&quot;model&quot;:&quot;192.168.11.13&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="sw-153-1" data-device-type="l2-switch" data-device-vendor="allied-telesis x230-18gp" data-device-model="192.168.11.13" data-device-json="{&quot;id&quot;:&quot;sw-153-1&quot;,&quot;label&quot;:&quot;sw-153-1&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis x230-18gp&quot;,&quot;model&quot;:&quot;192.168.11.13&quot;}"><rect x="646" y="352" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="sw-153-1" data-device-type="l2-switch" data-device-vendor="allied-telesis x230-18gp" data-device-model="192.168.11.13" data-device-json="{&quot;id&quot;:&quot;sw-153-1&quot;,&quot;label&quot;:&quot;sw-153-1&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis x230-18gp&quot;,&quot;model&quot;:&quot;192.168.11.13&quot;}">
+  <g class="node-icon" transform="translate(662, 360)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M3 8h18v8H3V8zm2 2v4h14v-4H5zm2 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="682" y="419.2" class="node-label" text-anchor="middle">sw-153-1</text>
+</g>
+</g>
+<g class="node" data-id="sw-153-2" data-device-type="l2-switch" data-device-vendor="allied-telesis x230-18gp" data-device-model="192.168.11.14" data-device-json="{&quot;id&quot;:&quot;sw-153-2&quot;,&quot;label&quot;:&quot;sw-153-2&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis x230-18gp&quot;,&quot;model&quot;:&quot;192.168.11.14&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="sw-153-2" data-device-type="l2-switch" data-device-vendor="allied-telesis x230-18gp" data-device-model="192.168.11.14" data-device-json="{&quot;id&quot;:&quot;sw-153-2&quot;,&quot;label&quot;:&quot;sw-153-2&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis x230-18gp&quot;,&quot;model&quot;:&quot;192.168.11.14&quot;}"><rect x="900" y="462" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="sw-153-2" data-device-type="l2-switch" data-device-vendor="allied-telesis x230-18gp" data-device-model="192.168.11.14" data-device-json="{&quot;id&quot;:&quot;sw-153-2&quot;,&quot;label&quot;:&quot;sw-153-2&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis x230-18gp&quot;,&quot;model&quot;:&quot;192.168.11.14&quot;}">
+  <g class="node-icon" transform="translate(916, 470)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M3 8h18v8H3V8zm2 2v4h14v-4H5zm2 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="936" y="529.2" class="node-label" text-anchor="middle">sw-153-2</text>
+</g>
+</g>
+<g class="node" data-id="sw-161" data-device-type="l2-switch" data-device-vendor="cisco catalyst-2960-c" data-device-model="192.168.11.15" data-device-json="{&quot;id&quot;:&quot;sw-161&quot;,&quot;label&quot;:&quot;sw-161&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;cisco catalyst-2960-c&quot;,&quot;model&quot;:&quot;192.168.11.15&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="sw-161" data-device-type="l2-switch" data-device-vendor="cisco catalyst-2960-c" data-device-model="192.168.11.15" data-device-json="{&quot;id&quot;:&quot;sw-161&quot;,&quot;label&quot;:&quot;sw-161&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;cisco catalyst-2960-c&quot;,&quot;model&quot;:&quot;192.168.11.15&quot;}"><rect x="383" y="362" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="sw-161" data-device-type="l2-switch" data-device-vendor="cisco catalyst-2960-c" data-device-model="192.168.11.15" data-device-json="{&quot;id&quot;:&quot;sw-161&quot;,&quot;label&quot;:&quot;sw-161&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;cisco catalyst-2960-c&quot;,&quot;model&quot;:&quot;192.168.11.15&quot;}">
+  <g class="node-icon" transform="translate(392, 370)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M3 8h18v8H3V8zm2 2v4h14v-4H5zm2 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="412" y="429.2" class="node-label" text-anchor="middle">sw-161</text>
+</g>
+</g>
+<g class="node" data-id="sw-162" data-device-type="l2-switch" data-device-vendor="allied-telesis at-mws5028gp" data-device-model="192.168.11.16" data-device-json="{&quot;id&quot;:&quot;sw-162&quot;,&quot;label&quot;:&quot;sw-162&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis at-mws5028gp&quot;,&quot;model&quot;:&quot;192.168.11.16&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="sw-162" data-device-type="l2-switch" data-device-vendor="allied-telesis at-mws5028gp" data-device-model="192.168.11.16" data-device-json="{&quot;id&quot;:&quot;sw-162&quot;,&quot;label&quot;:&quot;sw-162&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis at-mws5028gp&quot;,&quot;model&quot;:&quot;192.168.11.16&quot;}"><rect x="546" y="472" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="sw-162" data-device-type="l2-switch" data-device-vendor="allied-telesis at-mws5028gp" data-device-model="192.168.11.16" data-device-json="{&quot;id&quot;:&quot;sw-162&quot;,&quot;label&quot;:&quot;sw-162&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;allied-telesis at-mws5028gp&quot;,&quot;model&quot;:&quot;192.168.11.16&quot;}">
+  <g class="node-icon" transform="translate(555, 480)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M3 8h18v8H3V8zm2 2v4h14v-4H5zm2 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="575" y="539.2" class="node-label" text-anchor="middle">sw-162</text>
+</g>
+</g>
+<g class="node" data-id="sw-165" data-device-type="l2-switch" data-device-vendor="fs s3100-8tms-p" data-device-model="192.168.11.17" data-device-json="{&quot;id&quot;:&quot;sw-165&quot;,&quot;label&quot;:&quot;sw-165&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;fs s3100-8tms-p&quot;,&quot;model&quot;:&quot;192.168.11.17&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="sw-165" data-device-type="l2-switch" data-device-vendor="fs s3100-8tms-p" data-device-model="192.168.11.17" data-device-json="{&quot;id&quot;:&quot;sw-165&quot;,&quot;label&quot;:&quot;sw-165&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;fs s3100-8tms-p&quot;,&quot;model&quot;:&quot;192.168.11.17&quot;}"><rect x="696" y="582" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="sw-165" data-device-type="l2-switch" data-device-vendor="fs s3100-8tms-p" data-device-model="192.168.11.17" data-device-json="{&quot;id&quot;:&quot;sw-165&quot;,&quot;label&quot;:&quot;sw-165&quot;,&quot;type&quot;:&quot;l2-switch&quot;,&quot;vendor&quot;:&quot;fs s3100-8tms-p&quot;,&quot;model&quot;:&quot;192.168.11.17&quot;}">
+  <g class="node-icon" transform="translate(705, 590)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M3 8h18v8H3V8zm2 2v4h14v-4H5zm2 1h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+    </g>
+  <text x="725" y="649.2" class="node-label" text-anchor="middle">sw-165</text>
+</g>
+</g>
+<g class="node" data-id="ap-153-1" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.24" data-device-json="{&quot;id&quot;:&quot;ap-153-1&quot;,&quot;label&quot;:&quot;ap-153-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.24&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-153-1" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.24" data-device-json="{&quot;id&quot;:&quot;ap-153-1&quot;,&quot;label&quot;:&quot;ap-153-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.24&quot;}"><rect x="624" y="472" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-153-1" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.24" data-device-json="{&quot;id&quot;:&quot;ap-153-1&quot;,&quot;label&quot;:&quot;ap-153-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.24&quot;}">
+  <g class="node-icon" transform="translate(640, 480)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="660" y="539.2" class="node-label" text-anchor="middle">ap-153-1</text>
+</g>
+</g>
+<g class="node" data-id="ap-153-2" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.25" data-device-json="{&quot;id&quot;:&quot;ap-153-2&quot;,&quot;label&quot;:&quot;ap-153-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.25&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-153-2" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.25" data-device-json="{&quot;id&quot;:&quot;ap-153-2&quot;,&quot;label&quot;:&quot;ap-153-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.25&quot;}"><rect x="716" y="472" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-153-2" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.25" data-device-json="{&quot;id&quot;:&quot;ap-153-2&quot;,&quot;label&quot;:&quot;ap-153-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.25&quot;}">
+  <g class="node-icon" transform="translate(732, 480)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="752" y="539.2" class="node-label" text-anchor="middle">ap-153-2</text>
+</g>
+</g>
+<g class="node" data-id="ap-153-3" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.26" data-device-json="{&quot;id&quot;:&quot;ap-153-3&quot;,&quot;label&quot;:&quot;ap-153-3&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.26&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-153-3" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.26" data-device-json="{&quot;id&quot;:&quot;ap-153-3&quot;,&quot;label&quot;:&quot;ap-153-3&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.26&quot;}"><rect x="808" y="462" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-153-3" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.26" data-device-json="{&quot;id&quot;:&quot;ap-153-3&quot;,&quot;label&quot;:&quot;ap-153-3&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.26&quot;}">
+  <g class="node-icon" transform="translate(824, 470)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="844" y="529.2" class="node-label" text-anchor="middle">ap-153-3</text>
+</g>
+</g>
+<g class="node" data-id="ap-153-4" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.27" data-device-json="{&quot;id&quot;:&quot;ap-153-4&quot;,&quot;label&quot;:&quot;ap-153-4&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.27&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-153-4" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.27" data-device-json="{&quot;id&quot;:&quot;ap-153-4&quot;,&quot;label&quot;:&quot;ap-153-4&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.27&quot;}"><rect x="992" y="562" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-153-4" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.27" data-device-json="{&quot;id&quot;:&quot;ap-153-4&quot;,&quot;label&quot;:&quot;ap-153-4&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.27&quot;}">
+  <g class="node-icon" transform="translate(1008, 570)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="1028" y="629.2" class="node-label" text-anchor="middle">ap-153-4</text>
+</g>
+</g>
+<g class="node" data-id="ap-153-5" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.28" data-device-json="{&quot;id&quot;:&quot;ap-153-5&quot;,&quot;label&quot;:&quot;ap-153-5&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.28&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-153-5" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.28" data-device-json="{&quot;id&quot;:&quot;ap-153-5&quot;,&quot;label&quot;:&quot;ap-153-5&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.28&quot;}"><rect x="900" y="572" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-153-5" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.28" data-device-json="{&quot;id&quot;:&quot;ap-153-5&quot;,&quot;label&quot;:&quot;ap-153-5&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.28&quot;}">
+  <g class="node-icon" transform="translate(916, 580)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="936" y="639.2" class="node-label" text-anchor="middle">ap-153-5</text>
+</g>
+</g>
+<g class="node" data-id="ap-153-6" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.29" data-device-json="{&quot;id&quot;:&quot;ap-153-6&quot;,&quot;label&quot;:&quot;ap-153-6&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.29&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-153-6" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.29" data-device-json="{&quot;id&quot;:&quot;ap-153-6&quot;,&quot;label&quot;:&quot;ap-153-6&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.29&quot;}"><rect x="808" y="572" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-153-6" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.29" data-device-json="{&quot;id&quot;:&quot;ap-153-6&quot;,&quot;label&quot;:&quot;ap-153-6&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.29&quot;}">
+  <g class="node-icon" transform="translate(824, 580)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="844" y="639.2" class="node-label" text-anchor="middle">ap-153-6</text>
+</g>
+</g>
+<g class="node" data-id="ap-161-1" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.30" data-device-json="{&quot;id&quot;:&quot;ap-161-1&quot;,&quot;label&quot;:&quot;ap-161-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.30&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-161-1" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.30" data-device-json="{&quot;id&quot;:&quot;ap-161-1&quot;,&quot;label&quot;:&quot;ap-161-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.30&quot;}"><rect x="362" y="472" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-161-1" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.30" data-device-json="{&quot;id&quot;:&quot;ap-161-1&quot;,&quot;label&quot;:&quot;ap-161-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.30&quot;}">
+  <g class="node-icon" transform="translate(378, 480)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="398" y="539.2" class="node-label" text-anchor="middle">ap-161-1</text>
+</g>
+</g>
+<g class="node" data-id="ap-161-2" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.31" data-device-json="{&quot;id&quot;:&quot;ap-161-2&quot;,&quot;label&quot;:&quot;ap-161-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.31&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-161-2" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.31" data-device-json="{&quot;id&quot;:&quot;ap-161-2&quot;,&quot;label&quot;:&quot;ap-161-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.31&quot;}"><rect x="454" y="472" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-161-2" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.31" data-device-json="{&quot;id&quot;:&quot;ap-161-2&quot;,&quot;label&quot;:&quot;ap-161-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.31&quot;}">
+  <g class="node-icon" transform="translate(470, 480)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="490" y="539.2" class="node-label" text-anchor="middle">ap-161-2</text>
+</g>
+</g>
+<g class="node" data-id="ap-162" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.32" data-device-json="{&quot;id&quot;:&quot;ap-162&quot;,&quot;label&quot;:&quot;ap-162&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.32&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-162" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.32" data-device-json="{&quot;id&quot;:&quot;ap-162&quot;,&quot;label&quot;:&quot;ap-162&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.32&quot;}"><rect x="462" y="582" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-162" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.32" data-device-json="{&quot;id&quot;:&quot;ap-162&quot;,&quot;label&quot;:&quot;ap-162&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.32&quot;}">
+  <g class="node-icon" transform="translate(471, 590)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="491" y="649.2" class="node-label" text-anchor="middle">ap-162</text>
+</g>
+</g>
+<g class="node" data-id="ap-163" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.33" data-device-json="{&quot;id&quot;:&quot;ap-163&quot;,&quot;label&quot;:&quot;ap-163&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.33&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-163" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.33" data-device-json="{&quot;id&quot;:&quot;ap-163&quot;,&quot;label&quot;:&quot;ap-163&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.33&quot;}"><rect x="618" y="582" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-163" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.33" data-device-json="{&quot;id&quot;:&quot;ap-163&quot;,&quot;label&quot;:&quot;ap-163&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.33&quot;}">
+  <g class="node-icon" transform="translate(627, 590)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="647" y="649.2" class="node-label" text-anchor="middle">ap-163</text>
+</g>
+</g>
+<g class="node" data-id="ap-164" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.34" data-device-json="{&quot;id&quot;:&quot;ap-164&quot;,&quot;label&quot;:&quot;ap-164&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.34&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-164" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.34" data-device-json="{&quot;id&quot;:&quot;ap-164&quot;,&quot;label&quot;:&quot;ap-164&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.34&quot;}"><rect x="540" y="582" width="58" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-164" data-device-type="access-point" data-device-vendor="cisco aironet 3800" data-device-model="192.168.11.34" data-device-json="{&quot;id&quot;:&quot;ap-164&quot;,&quot;label&quot;:&quot;ap-164&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3800&quot;,&quot;model&quot;:&quot;192.168.11.34&quot;}">
+  <g class="node-icon" transform="translate(549, 590)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="569" y="649.2" class="node-label" text-anchor="middle">ap-164</text>
+</g>
+</g>
+<g class="node" data-id="ap-165-1" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.35" data-device-json="{&quot;id&quot;:&quot;ap-165-1&quot;,&quot;label&quot;:&quot;ap-165-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.35&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-165-1" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.35" data-device-json="{&quot;id&quot;:&quot;ap-165-1&quot;,&quot;label&quot;:&quot;ap-165-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.35&quot;}"><rect x="781" y="692" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-165-1" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.35" data-device-json="{&quot;id&quot;:&quot;ap-165-1&quot;,&quot;label&quot;:&quot;ap-165-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.35&quot;}">
+  <g class="node-icon" transform="translate(797, 700)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="817" y="759.2" class="node-label" text-anchor="middle">ap-165-1</text>
+</g>
+</g>
+<g class="node" data-id="ap-165-2" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.36" data-device-json="{&quot;id&quot;:&quot;ap-165-2&quot;,&quot;label&quot;:&quot;ap-165-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.36&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-165-2" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.36" data-device-json="{&quot;id&quot;:&quot;ap-165-2&quot;,&quot;label&quot;:&quot;ap-165-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.36&quot;}"><rect x="873" y="682" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-165-2" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.36" data-device-json="{&quot;id&quot;:&quot;ap-165-2&quot;,&quot;label&quot;:&quot;ap-165-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.36&quot;}">
+  <g class="node-icon" transform="translate(889, 690)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="909" y="749.2" class="node-label" text-anchor="middle">ap-165-2</text>
+</g>
+</g>
+<g class="node" data-id="ap-165-3" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.37" data-device-json="{&quot;id&quot;:&quot;ap-165-3&quot;,&quot;label&quot;:&quot;ap-165-3&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.37&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-165-3" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.37" data-device-json="{&quot;id&quot;:&quot;ap-165-3&quot;,&quot;label&quot;:&quot;ap-165-3&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.37&quot;}"><rect x="597" y="692" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-165-3" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.37" data-device-json="{&quot;id&quot;:&quot;ap-165-3&quot;,&quot;label&quot;:&quot;ap-165-3&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.37&quot;}">
+  <g class="node-icon" transform="translate(613, 700)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="633" y="759.2" class="node-label" text-anchor="middle">ap-165-3</text>
+</g>
+</g>
+<g class="node" data-id="ap-165-4" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.38" data-device-json="{&quot;id&quot;:&quot;ap-165-4&quot;,&quot;label&quot;:&quot;ap-165-4&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.38&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-165-4" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.38" data-device-json="{&quot;id&quot;:&quot;ap-165-4&quot;,&quot;label&quot;:&quot;ap-165-4&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.38&quot;}"><rect x="689" y="692" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-165-4" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.38" data-device-json="{&quot;id&quot;:&quot;ap-165-4&quot;,&quot;label&quot;:&quot;ap-165-4&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.38&quot;}">
+  <g class="node-icon" transform="translate(705, 700)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="725" y="759.2" class="node-label" text-anchor="middle">ap-165-4</text>
+</g>
+</g>
+<g class="node" data-id="ap-jihanki" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.39" data-device-json="{&quot;id&quot;:&quot;ap-jihanki&quot;,&quot;label&quot;:&quot;ap-jihanki&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.39&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-jihanki" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.39" data-device-json="{&quot;id&quot;:&quot;ap-jihanki&quot;,&quot;label&quot;:&quot;ap-jihanki&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.39&quot;}"><rect x="491" y="692" width="86" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-jihanki" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.39" data-device-json="{&quot;id&quot;:&quot;ap-jihanki&quot;,&quot;label&quot;:&quot;ap-jihanki&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.39&quot;}">
+  <g class="node-icon" transform="translate(514, 700)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="534" y="759.2" class="node-label" text-anchor="middle">ap-jihanki</text>
+</g>
+</g>
+<g class="node" data-id="ap-151-1" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.22" data-device-json="{&quot;id&quot;:&quot;ap-151-1&quot;,&quot;label&quot;:&quot;ap-151-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.22&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-151-1" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.22" data-device-json="{&quot;id&quot;:&quot;ap-151-1&quot;,&quot;label&quot;:&quot;ap-151-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.22&quot;}"><rect x="15" y="462" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-151-1" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.22" data-device-json="{&quot;id&quot;:&quot;ap-151-1&quot;,&quot;label&quot;:&quot;ap-151-1&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.22&quot;}">
+  <g class="node-icon" transform="translate(31, 470)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="51" y="529.2" class="node-label" text-anchor="middle">ap-151-1</text>
+</g>
+</g>
+<g class="node" data-id="ap-152-2" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.23" data-device-json="{&quot;id&quot;:&quot;ap-152-2&quot;,&quot;label&quot;:&quot;ap-152-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.23&quot;}" filter="url(#node-shadow)">
+<g class="node-bg" data-id="ap-152-2" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.23" data-device-json="{&quot;id&quot;:&quot;ap-152-2&quot;,&quot;label&quot;:&quot;ap-152-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.23&quot;}"><rect x="107" y="472" width="72" height="80" rx="8" ry="8"
+          fill="#ffffff" stroke="#e2e8f0" stroke-width="1"  /></g>
+<g class="node-fg" data-id="ap-152-2" data-device-type="access-point" data-device-vendor="cisco aironet 3700" data-device-model="192.168.11.23" data-device-json="{&quot;id&quot;:&quot;ap-152-2&quot;,&quot;label&quot;:&quot;ap-152-2&quot;,&quot;type&quot;:&quot;access-point&quot;,&quot;vendor&quot;:&quot;cisco aironet 3700&quot;,&quot;model&quot;:&quot;192.168.11.23&quot;}">
+  <g class="node-icon" transform="translate(123, 480)">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10a2 2 0 100 4 2 2 0 000-4zm-4.5-2.5a6.5 6.5 0 019 0l-1.4 1.4a4.5 4.5 0 00-6.2 0l-1.4-1.4zm-2.8-2.8a10 10 0 0114.6 0l-1.4 1.4a8 8 0 00-11.8 0L4.7 4.7z"/></svg>
+    </g>
+  <text x="143" y="539.2" class="node-label" text-anchor="middle">ap-152-2</text>
+</g>
+</g>
+</svg>
+    <a class="branding" href="https://shumoku.packof.me" target="_blank" rel="noopener">
+      <svg class="branding-icon" viewBox="0 0 1024 1024" fill="none"><rect x="64" y="64" width="896" height="896" rx="200" fill="#7FE4C1"/><g transform="translate(90,40) scale(1.25)"><path fill="#1F2328" d="M380 340H450V505H700V555H510V645H450V645H380Z"/></g></svg>
+      <span>Made with Shumoku</span>
+    </a>
+  </div>
+  <script>(()=>{var{defineProperty:v,getOwnPropertyNames:K0,getOwnPropertyDescriptor:Q0}=Object,z0=Object.prototype.hasOwnProperty;var y0=new WeakMap,H0=($)=>{var L=y0.get($),f;if(L)return L;if(L=v({},"__esModule",{value:!0}),$&&typeof $==="object"||typeof $==="function")K0($).map((C)=>!z0.call(L,C)&&v(L,C,{get:()=>$[C],enumerable:!(f=Q0($,C))||f.enumerable}));return y0.set($,L),L};var k0=($,L)=>{for(var f in L)v($,f,{get:L[f],enumerable:!0,configurable:!0,set:(C)=>L[f]=()=>C})};var _0={};k0(_0,{ShumokuInteractive:()=>q0});var Z=null,u=null,j=null,A=null;function m0(){if(!Z)Z=document.createElement("div"),Z.style.cssText=`
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      z-index: 9998;
+    `,document.body.appendChild(Z);return Z}function X0(){if(!u)u=document.createElement("div"),u.style.cssText=`
+      position: fixed;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 9999;
+    `,document.body.appendChild(u);return u}function n(){if(!j||!A)return;if(!document.contains(j)){_(null);return}let $=j.closest("svg");if(!$)return;let L=$.getBoundingClientRect(),f=$.getAttribute("viewBox");if(f)A.setAttribute("viewBox",f);A.style.left=`${L.left}px`,A.style.top=`${L.top}px`,A.style.width=`${L.width}px`,A.style.height=`${L.height}px`}function _($){if($===j)return;if(j)j.classList.remove("shumoku-highlight");let L=X0();L.innerHTML="",A=null,j=$;let f=m0();if($){$.classList.add("shumoku-highlight");let C=$.closest("svg");if(C){let H=C.getAttribute("viewBox");if(H){let J=$.cloneNode(!0);J.classList.remove("shumoku-highlight");let N=document.createElementNS("http://www.w3.org/2000/svg","svg");N.setAttribute("viewBox",H),N.style.cssText=`
+          position: absolute;
+          overflow: visible;
+          filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 8px #fff) drop-shadow(0 0 12px rgba(100, 150, 255, 0.8));
+        `;let K=C.querySelector("defs");if(K)N.appendChild(K.cloneNode(!0));N.appendChild(J),L.appendChild(N),A=N,n()}}f.style.opacity="1"}else f.style.opacity="0"}function $0(){return j}function L0(){if(Z)Z.remove(),Z=null;if(u)u.remove(),u=null;j=null,A=null}var R=null;function Y0(){if(!R)R=document.createElement("div"),R.style.cssText=`
+      position: fixed;
+      z-index: 10000;
+      padding: 8px 12px;
+      background: rgba(30, 41, 59, 0.95);
+      color: #fff;
+      font-size: 13px;
+      line-height: 1.4;
+      border-radius: 6px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 280px;
+      white-space: pre-line;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    `,document.body.appendChild(R);return R}function l($,L,f){let C=Y0();C.textContent=$,C.style.opacity="1",requestAnimationFrame(()=>{let H=C.getBoundingClientRect(),J=12,N=L+12,K=f-H.height-12;if(N+H.width>window.innerWidth-12)N=L-H.width-12;if(K<12)K=f+12;C.style.left=`${Math.max(12,N)}px`,C.style.top=`${Math.max(12,K)}px`})}function V(){if(R)R.style.opacity="0"}function N0(){if(R)R.remove(),R=null}function d($){let L=$.closest(".port[data-port]");if(L){let H=L.getAttribute("data-port")||"";return{text:`${L.getAttribute("data-port-device")||""}:${H}`,element:L}}let f=$.closest(".link-group[data-link-id]");if(f){let H=f.getAttribute("data-link-from")||"",J=f.getAttribute("data-link-to")||"",N=f.getAttribute("data-link-bandwidth"),K=f.getAttribute("data-link-vlan"),Q=f.getAttribute("data-link-json"),m=H.startsWith("__export_"),D=J.startsWith("__export_");if((m||D)&&Q)try{let I=JSON.parse(Q).metadata;if(I?._destDevice){let B=m?J:H,E=I._destPort?`${I._destDevice}:${I._destPort}`:I._destDevice,M=`${B} ↔ ${E}`;if(N)M+=`
+${N}`;if(K)M+=`
+VLAN: ${K}`;return{text:M,element:f}}}catch{}let P=`${H} ↔ ${J}`;if(N)P+=`
+${N}`;if(K)P+=`
+VLAN: ${K}`;return{text:P,element:f}}let C=$.closest(".node[data-id]");if(C){let H=C.getAttribute("data-device-json");if(H)try{let J=JSON.parse(H),N=[];if(J.label)N.push(Array.isArray(J.label)?J.label.join(" "):J.label);if(J.type)N.push(`Type: ${J.type}`);if(J.vendor)N.push(`Vendor: ${J.vendor}`);if(J.model)N.push(`Model: ${J.model}`);return{text:N.join(`
+`),element:C}}catch{}return{text:C.getAttribute("data-id")||"",element:C}}return null}function W($){let L=$.getAttribute("viewBox");if(!L)return null;let f=L.split(/\s+|,/).map(Number);if(f.length!==4||f.some(Number.isNaN))return null;return{x:f[0],y:f[1],width:f[2],height:f[3]}}function x($,L,f){$.setAttribute("viewBox",`${L.x} ${L.y} ${L.width} ${L.height}`),f?.()}function c($){return{x:$.x,y:$.y,width:$.width,height:$.height}}var G0=1.2;function C0($){let L=typeof $.target==="string"?document.querySelector($.target):$.target;if(!L)throw Error("Target not found");let f=L.closest("svg")||L.querySelector("svg")||L;if(!(f instanceof SVGSVGElement))throw Error("SVG element not found");let C=$.panZoom?.enabled??!0,H=$.panZoom?.minScale??0.1,J=$.panZoom?.maxScale??10,N=W(f);if(!N){let y=f.getBBox();N={x:y.x,y:y.y,width:y.width,height:y.height},x(f,N,n)}let K=!1,Q={active:!1,startX:0,startY:0,startViewBox:null},m=null,D=()=>{if(!N)return 1;let y=W(f);if(!y)return 1;return N.width/y.width},P=()=>{if(N)x(f,N,n)},b=(y)=>{if(y.length<2)return 0;let G=y[1].clientX-y[0].clientX,q=y[1].clientY-y[0].clientY;return Math.hypot(G,q)},I=(y)=>({x:(y[0].clientX+y[1].clientX)/2,y:(y[0].clientY+y[1].clientY)/2}),B=(y)=>{if(y.touches.length>=2&&C){y.preventDefault();let G=b(y.touches),q=I(y.touches),z=W(f);if(z){let k=f.getBoundingClientRect();m={initialDist:G,startViewBox:c(z),centerX:z.x+z.width*((q.x-k.left)/k.width),centerY:z.y+z.height*((q.y-k.top)/k.height)}}if(K)V(),_(null),K=!1}},E=(y)=>{if(y.touches.length>=2&&m&&C){y.preventDefault();let G=b(y.touches),q=I(y.touches);if(G===0||m.initialDist===0)return;let z=G/m.initialDist,k=m.startViewBox.width/z,X=m.startViewBox.height/z;if(!N)return;let U=N.width/k;if(U<H||U>J)return;let Y=f.getBoundingClientRect(),F=(q.x-Y.left)/Y.width,r=(q.y-Y.top)/Y.height;x(f,{x:m.centerX-k*F,y:m.centerY-X*r,width:k,height:X},n)}},M=(y)=>{if(y.touches.length<2)m=null},p=(y)=>{if(y.button!==0||!C)return;let G=W(f);if(!G)return;if(Q.active=!0,Q.startX=y.clientX,Q.startY=y.clientY,Q.startViewBox=c(G),f.style.cursor="grabbing",K)V(),_(null),K=!1},i=(y)=>{if(Q.active&&Q.startViewBox&&C){let G=y.clientX-Q.startX,q=y.clientY-Q.startY,z=f.getBoundingClientRect(),k=Q.startViewBox.width/z.width,X=Q.startViewBox.height/z.height;x(f,{x:Q.startViewBox.x-G*k,y:Q.startViewBox.y-q*X,width:Q.startViewBox.width,height:Q.startViewBox.height},n)}else if(!Q.active){let G=d(y.target);if(G)l(G.text,y.clientX,y.clientY),_(G.element);else V(),_(null)}},s=()=>{Q.active=!1,Q.startViewBox=null,f.style.cursor=""},g=()=>{if(!Q.active&&!K)V(),_(null)},h=(y)=>{if(!C)return;y.preventDefault();let G=W(f);if(!G||!N)return;let q=f.getBoundingClientRect(),z=G.x+G.width*((y.clientX-q.left)/q.width),k=G.y+G.height*((y.clientY-q.top)/q.height),X=y.deltaY>0?G0:1/G0,U=G.width*X,Y=G.height*X,F=N.width/U;if(F<H||F>J)return;let r=(y.clientX-q.left)/q.width,J0=(y.clientY-q.top)/q.height;x(f,{x:z-U*r,y:k-Y*J0,width:U,height:Y},n)},a=(y)=>{let q=y.target.closest(".subgraph[data-has-sheet]");if(q){let z=q.getAttribute("data-sheet-id");if(z)y.preventDefault(),y.stopPropagation(),T(z)}},T=(y)=>{let G=new CustomEvent("shumoku:navigate",{detail:{sheetId:y},bubbles:!0});document.dispatchEvent(G)},O=null,t=(y)=>{if(y.touches.length===1)O={x:y.touches[0].clientX,y:y.touches[0].clientY,time:Date.now()};else O=null},o=(y)=>{if(!O||y.touches.length>0){O=null;return}let G=y.changedTouches[0],q=G.clientX-O.x,z=G.clientY-O.y,k=Date.now()-O.time;if(Math.hypot(q,z)<10&&k<300){let X=document.elementFromPoint(G.clientX,G.clientY);if(X){let U=X.closest(".subgraph[data-has-sheet]");if(U){let F=U.getAttribute("data-sheet-id");if(F){T(F),O=null;return}}let Y=d(X);if(Y)l(Y.text,G.clientX,G.clientY),_(Y.element),K=!0;else if(K)V(),_(null),K=!1}}O=null},S=null,e="",f0=()=>{if($0()){let y=f.getAttribute("viewBox")||"";if(y!==e)e=y,n()}S=requestAnimationFrame(f0)},w=()=>{n()};return S=requestAnimationFrame(f0),f.addEventListener("touchstart",B,{passive:!1}),f.addEventListener("touchmove",E,{passive:!1}),f.addEventListener("touchend",M),f.addEventListener("touchcancel",M),f.addEventListener("touchstart",t,{passive:!0}),f.addEventListener("touchend",o),f.addEventListener("mousedown",p),document.addEventListener("mousemove",i),document.addEventListener("mouseup",s),f.addEventListener("mouseleave",g),f.addEventListener("wheel",h,{passive:!1}),f.addEventListener("click",a),window.addEventListener("scroll",w,!0),window.addEventListener("resize",w),{destroy:()=>{if(S!==null)cancelAnimationFrame(S);f.removeEventListener("touchstart",B),f.removeEventListener("touchmove",E),f.removeEventListener("touchend",M),f.removeEventListener("touchcancel",M),f.removeEventListener("touchstart",t),f.removeEventListener("touchend",o),f.removeEventListener("mousedown",p),document.removeEventListener("mousemove",i),document.removeEventListener("mouseup",s),f.removeEventListener("mouseleave",g),f.removeEventListener("wheel",h),f.removeEventListener("click",a),window.removeEventListener("scroll",w,!0),window.removeEventListener("resize",w),N0(),L0()},showDeviceModal:()=>{},hideModal:()=>{},showLinkTooltip:()=>{},hideTooltip:()=>{V(),_(null),K=!1},resetView:P,getScale:D,navigateToSheet:T}}var q0={initInteractive:C0};window.ShumokuInteractive=q0;})();
+</script>
+  <script>
+    (function() {
+      var svg = document.querySelector('#container > svg');
+      var container = document.getElementById('container');
+      if (!svg || !container) { console.error('SVG or container not found'); return; }
+
+      var vb = { x: 0, y: 0, w: 0, h: 0 };
+      var origVb = { x: 0, y: 0, w: 0, h: 0 };
+      var drag = { active: false, x: 0, y: 0, vx: 0, vy: 0 };
+
+      function init() {
+        var w = parseFloat(svg.getAttribute('width')) || 800;
+        var h = parseFloat(svg.getAttribute('height')) || 600;
+        var existing = svg.getAttribute('viewBox');
+        if (existing) {
+          var p = existing.split(/\s+|,/).map(Number);
+          origVb = { x: p[0] || 0, y: p[1] || 0, w: p[2] || w, h: p[3] || h };
+        } else {
+          origVb = { x: 0, y: 0, w: w, h: h };
+        }
+        svg.removeAttribute('width');
+        svg.removeAttribute('height');
+        svg.style.width = '100%';
+        svg.style.height = '100%';
+        fitView();
+
+        if (window.ShumokuInteractive) {
+          window.ShumokuInteractive.initInteractive({ target: svg, modal: { enabled: true }, tooltip: { enabled: true }, panZoom: { enabled: false } });
+        }
+      }
+
+      function updateViewBox() {
+        svg.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
+        var zoomEl = document.getElementById('zoom');
+        if (zoomEl) zoomEl.textContent = Math.round(origVb.w / vb.w * 100) + '%';
+      }
+
+      function fitView() {
+        var cw = container.clientWidth || 800;
+        var ch = container.clientHeight || 600;
+        var scale = Math.min(cw / origVb.w, ch / origVb.h) * 0.9;
+        vb.w = cw / scale;
+        vb.h = ch / scale;
+        vb.x = origVb.x + (origVb.w - vb.w) / 2;
+        vb.y = origVb.y + (origVb.h - vb.h) / 2;
+        updateViewBox();
+      }
+
+      function resetView() {
+        vb.x = origVb.x; vb.y = origVb.y; vb.w = origVb.w; vb.h = origVb.h;
+        updateViewBox();
+      }
+
+      function zoom(f) {
+        var cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
+        var nw = vb.w / f, nh = vb.h / f;
+        var scale = origVb.w / nw;
+        if (scale < 0.1 || scale > 10) return;
+        vb.w = nw; vb.h = nh; vb.x = cx - nw / 2; vb.y = cy - nh / 2;
+        updateViewBox();
+      }
+
+      var btnIn = document.getElementById('btn-in');
+      var btnOut = document.getElementById('btn-out');
+      var btnFit = document.getElementById('btn-fit');
+      var btnReset = document.getElementById('btn-reset');
+      if (btnIn) btnIn.addEventListener('click', function() { zoom(1.2); });
+      if (btnOut) btnOut.addEventListener('click', function() { zoom(1/1.2); });
+      if (btnFit) btnFit.addEventListener('click', fitView);
+      if (btnReset) btnReset.addEventListener('click', resetView);
+
+      container.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var rect = container.getBoundingClientRect();
+        var mx = (e.clientX - rect.left) / rect.width;
+        var my = (e.clientY - rect.top) / rect.height;
+        var px = vb.x + vb.w * mx, py = vb.y + vb.h * my;
+        var f = e.deltaY > 0 ? 1/1.2 : 1.2;
+        var nw = vb.w / f, nh = vb.h / f;
+        var scale = origVb.w / nw;
+        if (scale < 0.1 || scale > 10) return;
+        vb.w = nw; vb.h = nh; vb.x = px - nw * mx; vb.y = py - nh * my;
+        updateViewBox();
+      }, { passive: false });
+
+      container.addEventListener('mousedown', function(e) {
+        if (e.button === 0) {
+          drag = { active: true, x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y };
+          container.classList.add('dragging');
+        }
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!drag.active) return;
+        var sx = vb.w / container.clientWidth;
+        var sy = vb.h / container.clientHeight;
+        vb.x = drag.vx - (e.clientX - drag.x) * sx;
+        vb.y = drag.vy - (e.clientY - drag.y) * sy;
+        updateViewBox();
+      });
+
+      document.addEventListener('mouseup', function() {
+        drag.active = false;
+        container.classList.remove('dragging');
+      });
+
+      // Touch events for pan/zoom
+      var pinch = null;
+      var touch1 = null;
+      var hasMoved = false;
+      var DRAG_THRESHOLD = 8;
+
+      function getTouchDist(t) {
+        if (t.length < 2) return 0;
+        return Math.hypot(t[1].clientX - t[0].clientX, t[1].clientY - t[0].clientY);
+      }
+
+      function getTouchCenter(t) {
+        return { x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 };
+      }
+
+      container.addEventListener('touchstart', function(e) {
+        // Skip if touching branding link
+        if (e.target.closest && e.target.closest('.branding')) return;
+
+        if (e.touches.length === 1) {
+          // Single finger - potential pan or tap
+          touch1 = { x: e.touches[0].clientX, y: e.touches[0].clientY, vx: vb.x, vy: vb.y };
+          hasMoved = false;
+        } else if (e.touches.length >= 2) {
+          // Two fingers - pinch zoom
+          e.preventDefault();
+          touch1 = null;
+          hasMoved = true;
+          var dist = getTouchDist(e.touches);
+          var center = getTouchCenter(e.touches);
+          var rect = container.getBoundingClientRect();
+          pinch = {
+            dist: dist,
+            vb: { x: vb.x, y: vb.y, w: vb.w, h: vb.h },
+            cx: vb.x + vb.w * ((center.x - rect.left) / rect.width),
+            cy: vb.y + vb.h * ((center.y - rect.top) / rect.height),
+            lastCenter: center
+          };
+        }
+      }, { passive: false });
+
+      container.addEventListener('touchmove', function(e) {
+        // Skip if touching branding link
+        if (e.target.closest && e.target.closest('.branding')) return;
+
+        if (e.touches.length === 1 && touch1) {
+          var dx = e.touches[0].clientX - touch1.x;
+          var dy = e.touches[0].clientY - touch1.y;
+
+          // Check if moved beyond threshold
+          if (!hasMoved && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
+            hasMoved = true;
+          }
+
+          if (hasMoved) {
+            e.preventDefault();
+            var sx = vb.w / container.clientWidth;
+            var sy = vb.h / container.clientHeight;
+            vb.x = touch1.vx - dx * sx;
+            vb.y = touch1.vy - dy * sy;
+            updateViewBox();
+          }
+        } else if (e.touches.length >= 2 && pinch) {
+          e.preventDefault();
+          var dist = getTouchDist(e.touches);
+          var center = getTouchCenter(e.touches);
+          if (dist === 0 || pinch.dist === 0) return;
+
+          var scale = dist / pinch.dist;
+          var nw = pinch.vb.w / scale;
+          var nh = pinch.vb.h / scale;
+          var newScale = origVb.w / nw;
+          if (newScale < 0.1 || newScale > 10) return;
+
+          var rect = container.getBoundingClientRect();
+          var sx = nw / rect.width;
+          var sy = nh / rect.height;
+          var panX = (center.x - pinch.lastCenter.x) * sx;
+          var panY = (center.y - pinch.lastCenter.y) * sy;
+
+          var mx = (center.x - rect.left) / rect.width;
+          var my = (center.y - rect.top) / rect.height;
+          vb.x = pinch.cx - nw * mx - panX;
+          vb.y = pinch.cy - nh * my - panY;
+          vb.w = nw;
+          vb.h = nh;
+          updateViewBox();
+        }
+      }, { passive: false });
+
+      container.addEventListener('touchend', function(e) {
+        if (e.touches.length === 0) {
+          touch1 = null;
+          pinch = null;
+          hasMoved = false;
+        } else if (e.touches.length === 1) {
+          pinch = null;
+          touch1 = { x: e.touches[0].clientX, y: e.touches[0].clientY, vx: vb.x, vy: vb.y };
+          hasMoved = true; // Already moving
+        }
+      });
+
+      container.addEventListener('touchcancel', function() {
+        touch1 = null;
+        pinch = null;
+        hasMoved = false;
+      });
+
+      // Listen for hierarchical navigation events
+      document.addEventListener('shumoku:navigate', function(e) {
+        var sheetId = e.detail && e.detail.sheetId;
+        if (sheetId) {
+          console.log('[Shumoku] Navigate to sheet:', sheetId);
+          alert('Navigate to: ' + sheetId + '\n\nThis sheet would show the detailed view of this subgraph.');
+        }
+      });
+
+      init();
+    })();
+  </script>
+  <script></script>
+</body>
+</html>
