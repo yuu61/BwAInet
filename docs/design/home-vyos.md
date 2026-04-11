@@ -423,7 +423,7 @@ set firewall options interface wg1 adjust-mss clamp-mss-to-pmtu
 
 ### 経路優先度制御
 
-WireGuard 直接リンクを優先し、r2-gcp 経由をフォールバックにする。AS path 長 (2 hop vs 3 hop) で自然に選択されるが、確実性のため local-preference を併用する。
+WireGuard 直接リンクを優先し、r2-gcp 経由をフォールバックにする。ただし r2-gcp が広告する Google プレフィックス (goog.json 由来) は r2-gcp 直接を優先する (LP=250)。default route のみ LP=50 を維持。
 
 ```
 set protocols bgp system-as 65002
@@ -455,12 +455,23 @@ set protocols bgp address-family ipv4-unicast network 192.168.10.0/24
 set policy route-map WG-IN rule 10 action permit
 set policy route-map WG-IN rule 10 set local-preference 200
 
-# GCP 経由: local-pref 50 (フォールバック)
+# GCP 経由: default route のみ LP=50 (フォールバック)、Google プレフィックスは LP=250 (r2-gcp 直接優先)
+set policy prefix-list DEFAULT-ONLY rule 10 action permit
+set policy prefix-list DEFAULT-ONLY rule 10 prefix 0.0.0.0/0
+set policy prefix-list6 DEFAULT6-ONLY rule 10 action permit
+set policy prefix-list6 DEFAULT6-ONLY rule 10 prefix ::/0
+
 set policy route-map GCP-IN rule 10 action permit
+set policy route-map GCP-IN rule 10 match ip address prefix-list DEFAULT-ONLY
 set policy route-map GCP-IN rule 10 set local-preference 50
+set policy route-map GCP-IN rule 15 action permit
+set policy route-map GCP-IN rule 15 match ipv6 address prefix-list DEFAULT6-ONLY
+set policy route-map GCP-IN rule 15 set local-preference 50
+set policy route-map GCP-IN rule 20 action permit
+set policy route-map GCP-IN rule 20 set local-preference 250
 ```
 
-WireGuard (wg0) ダウン時は r3 との BGP セッションも落ち、local-pref 200 の経路が消失。自動的に r2-gcp 経由 (local-pref 50) にフォールバックする。
+WireGuard (wg0) ダウン時は r3 との BGP セッションも落ち、local-pref 200 の経路が消失。自動的に r2-gcp 経由 (local-pref 50) にフォールバックする。Google 宛トラフィックは r2-gcp 直接 (LP=250) で、r3 を経由しない。
 
 ### default-originate について
 
@@ -866,8 +877,18 @@ set protocols bgp address-family ipv4-unicast network 192.168.10.0/24
 # Route Map
 set policy route-map WG-IN rule 10 action permit
 set policy route-map WG-IN rule 10 set local-preference 200
+set policy prefix-list DEFAULT-ONLY rule 10 action permit
+set policy prefix-list DEFAULT-ONLY rule 10 prefix 0.0.0.0/0
+set policy prefix-list6 DEFAULT6-ONLY rule 10 action permit
+set policy prefix-list6 DEFAULT6-ONLY rule 10 prefix ::/0
 set policy route-map GCP-IN rule 10 action permit
+set policy route-map GCP-IN rule 10 match ip address prefix-list DEFAULT-ONLY
 set policy route-map GCP-IN rule 10 set local-preference 50
+set policy route-map GCP-IN rule 15 action permit
+set policy route-map GCP-IN rule 15 match ipv6 address prefix-list DEFAULT6-ONLY
+set policy route-map GCP-IN rule 15 set local-preference 50
+set policy route-map GCP-IN rule 20 action permit
+set policy route-map GCP-IN rule 20 set local-preference 250
 
 # === システム ===
 
