@@ -29,30 +29,23 @@ nodes:
     ipv4: "192.168.11.3"
     mac: "000:4e:01:b9:ab:7f"
     os: "proxmox"
-  - id: zabbix
-    label: "zabbix"
+  - id: zabbix-grafana
+    label: "zabbix-grafana"
     type: server
-    vendor: "ubuntu24.0 (Zabbix)"
-    model: "192.168.11.4"
-    ipv4: "192.168.11.4"
-    os: "ubuntu24.0"
-    note: "VM in proxmox"
-  - id: shumoku
-    label: "shumoku"
-    type: server
-    vendor: "ubuntu24.0 (shumoku)"
-    model: "192.168.11.5"
-    ipv4: "192.168.11.5"
-    os: "ubuntu24.0"
-    note: "VM in proxmox"
+    vendor: "Debian 12 (Zabbix + Grafana)"
+    model: "192.168.11.6"
+    ipv4: "192.168.11.6"
+    os: "debian12"
+    note: "CT 201 in proxmox"
 
   # --- 会場 コア/ディストリビューション ---
   - id: sw-152
     label: "sw-152"
-    type: router
-    vendor: "cisco ISR 1100"
+    type: switch
+    vendor: "FS S3100-8TMS-P"
     model: "192.168.11.12"
     ipv4: "192.168.11.12"
+    note: "L2+ PoE, 基幹SW"
 
   # --- その他の機材 ---
   - id: wlc-3504
@@ -66,7 +59,7 @@ nodes:
   - id: sw-151
     label: "sw-151"
     type: switch
-    vendor: "cisco Catalyst-2960S + PoEインジェクター"
+    vendor: "allied-telesis (AW+ v5.4.4)"
     model: "192.168.11.11"
     ipv4: "192.168.11.11"
   - id: sw-153-1
@@ -90,72 +83,101 @@ nodes:
   - id: sw-162
     label: "sw-162"
     type: switch
-    vendor: "allied-telesis AT-MWS5028GP"
+    vendor: "cisco Catalyst-3750"
     model: "192.168.11.16"
     ipv4: "192.168.11.16"
   - id: sw-165
     label: "sw-165"
     type: switch
-    vendor: "fs S3100-8TMS-P"
+    vendor: "cisco Catalyst-3750"
     model: "192.168.11.17"
     ipv4: "192.168.11.17"
 
   # --- AP群 ---
+  - id: ap-152
+    label: "ap-152"
+    type: ap
+    vendor: "cisco Aironet 3800"
+    model: "192.168.11.21"
+    mac: "cc:db:93:c8:ff:10"
+  - id: ap-161-1
+    label: "ap-161-1"
+    type: ap
+    vendor: "cisco Aironet 3800"
+    model: "192.168.11.22"
+    mac: "a4:6c:2a:3c:29:84"
+  - id: ap-161-2
+    label: "ap-161-2"
+    type: ap
+    vendor: "cisco Aironet 3800"
+    model: "192.168.11.23"
+    mac: "cc:db:93:c8:fe:a6"
   - id: ap-153-1
     label: "ap-153-1"
     type: ap
     vendor: "cisco Aironet 3800"
     model: "192.168.11.24"
+    mac: "cc:db:93:c8:f9:64"
   - id: ap-153-2
     label: "ap-153-2"
     type: ap
     vendor: "cisco Aironet 3800"
     model: "192.168.11.25"
+    mac: "cc:db:93:c9:0e:22"
   - id: ap-153-3
     label: "ap-153-3"
     type: ap
     vendor: "cisco Aironet 3800"
     model: "192.168.11.26"
+    mac: "cc:db:93:c8:f2:b4"
   - id: ap-153-4
     label: "ap-153-4"
     type: ap
     vendor: "cisco Aironet 3800"
     model: "192.168.11.27"
+    mac: "cc:db:93:c8:e5:2a"
   - id: ap-153-5
     label: "ap-153-5"
     type: ap
     vendor: "cisco Aironet 3800"
     model: "192.168.11.28"
+    mac: "cc:db:93:c8:f9:6e"
   - id: ap-153-6
     label: "ap-153-6"
     type: ap
     vendor: "cisco Aironet 3800"
     model: "192.168.11.29"
-  - id: ap-161-1
-    label: "ap-161-1"
+    mac: "cc:db:93:c9:0a:a8"
+  - id: ap-151-1
+    label: "ap-151-1"
     type: ap
-    vendor: "cisco Aironet 3800"
+    vendor: "cisco Aironet 3700"
     model: "192.168.11.30"
-  - id: ap-161-2
-    label: "ap-161-2"
+    mac: "cc:db:93:c9:0b:e4"
+  - id: ap-151-2
+    label: "ap-151-2"
     type: ap
-    vendor: "cisco Aironet 3800"
+    vendor: "cisco Aironet 3700"
     model: "192.168.11.31"
+    mac: "b0:aa:77:ed:b9:80"
   - id: ap-162
     label: "ap-162"
     type: ap
-    vendor: "cisco Aironet 3800"
+    vendor: "cisco AIR-CAP1702I"
     model: "192.168.11.32"
+    mac: "00:2c:c8:60:b3:2c"
   - id: ap-163
     label: "ap-163"
     type: ap
     vendor: "cisco Aironet 3700"
     model: "192.168.11.33"
+    mac: "A4:6C:2A:54:34:D4"
   - id: ap-164
     label: "ap-164"
     type: ap
-    vendor: "cisco Aironet 3800"
+    vendor: "cisco AIR-CAP1700I"
     model: "192.168.11.34"
+    mac: "2c:33:11:23:96:68"
   - id: ap-165-1
     label: "ap-165-1"
     type: ap
@@ -167,31 +189,25 @@ nodes:
     type: ap
     vendor: "cisco Aironet 3700"
     model: "192.168.11.36"
+    mac: "70:E4:22:BE:C2:3C"
   - id: ap-165-3
     label: "ap-165-3"
     type: ap
     vendor: "cisco Aironet 3700"
     model: "192.168.11.37"
+    mac: "84:3D:C6:31:68:9C"
   - id: ap-165-4
     label: "ap-165-4"
     type: ap
     vendor: "cisco Aironet 3700"
     model: "192.168.11.38"
+    mac: "A4:6C:2A:54:37:24"
   - id: ap-jihanki
     label: "ap-jihanki"
     type: ap
     vendor: "cisco Aironet 3700"
     model: "192.168.11.39"
-  - id: ap-151-1
-    label: "ap-151-1"
-    type: ap
-    vendor: "cisco Aironet 3700"
-    model: "192.168.11.22"
-  - id: ap-152-2
-    label: "ap-152-2"
-    type: ap
-    vendor: "cisco Aironet 3700"
-    model: "192.168.11.23"
+    mac: "A4:6C:2A:28:7E:20"
 
 links:
   # --- VPN/BGP ---
@@ -222,10 +238,12 @@ links:
     to: sw-165
 
   # --- AP 接続 ---
+  - from: sw-152
+    to: ap-152
   - from: sw-151
     to: ap-151-1
   - from: sw-151
-    to: ap-152-2
+    to: ap-151-2
   - from: sw-153-1
     to: ap-153-1
   - from: sw-153-1
@@ -263,8 +281,6 @@ links:
   - from: sw-152
     to: pve
   - from: pve
-    to: zabbix
-  - from: pve
-    to: shumoku
+    to: zabbix-grafana
   - from: sw-152
     to: wlc-3504

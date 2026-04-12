@@ -452,9 +452,135 @@ set system task-scheduler task ndp-dump executable path /config/scripts/ndp-dump
 2026-08-10T14:30:00Z 2001:db8::abcd dev eth2.30 lladdr 11:22:33:44:55:66 STALE
 ```
 
-## 9. nfcapd コレクター構成 (Local Server)
+## 9. local-server CT 構成
 
-ローカルサーバー (192.168.11.2) で nfcapd を稼働させ、VyOS からの NetFlow を受信。
+### 概要
+
+local-server は**法執行対応ログ集約専用**の LXC CT である。rsyslog (syslog アグリゲータ) と nfcapd (NetFlow コレクタ) のみを稼働させ、運用監視ツール (Zabbix, Grafana, SNMP Exporter 等) は配置しない。運用監視は別 VM (zabbix-grafana, VM 101) で行う。詳細は [`venue-proxmox.md`](venue-proxmox.md) を参照。
+
+### CT 基本設定
+
+| 項目 | 値 | 備考 |
+|------|-----|------|
+| VMID | 200 | VM 100-102 と重複しない番号帯 |
+| 名称 | `local-server` | |
+| 種別 | LXC CT | データ永続化に問題なし (rootfs/mp は Proxmox ストレージ上に永続化) |
+| OS テンプレート | Debian 12 (Bookworm) | Proxmox 標準テンプレート |
+| vCPU | 2 | nfcapd + rsyslog は CPU 軽量 |
+| RAM | 8GB | rsyslog バッファリング + nfcapd I/O キャッシュ |
+| Root Disk | 16GB (NVMe #1 thin pool) | OS + ツールのみ |
+| Data Mount | NVMe #2 512GB → `/mnt/data` (CT 内) | Proxmox storage pool 経由でマウント |
+| Network | `net0: name=eth0,bridge=vmbr_trunk,tag=11,ip=192.168.11.2/24,gw=192.168.11.1` | mgmt VLAN |
+| DNS | 192.168.11.1 (r3) | |
+
+### NVMe #2 マウント (Proxmox storage pool)
+
+NVMe #2 を Proxmox の directory ストレージとして追加し、CT のマウントポイントとして提供する。
+
+```bash
+# ホスト側: NVMe #2 をフォーマット (初回のみ)
+# ※ デバイス名は実機確認が必要 (nvme1n1 等)
+mkfs.ext4 -L data-nvme2 /dev/nvme1n1
+
+# ホスト側: マウントポイント作成
+mkdir -p /mnt/data-nvme2
+echo 'LABEL=data-nvme2 /mnt/data-nvme2 ext4 defaults,noatime 0 2' >> /etc/fstab
+mount /mnt/data-nvme2
+
+# Proxmox storage pool として追加
+pvesm add dir data-nvme2 --path /mnt/data-nvme2 --content rootdir
+```
+
+CT config に mount point を追加:
+
+```
+# /etc/pve/lxc/200.conf
+mp0: data-nvme2:subvol-200-disk-0,mp=/mnt/data,size=500G
+```
+
+CT 内でのシンボリックリンク:
+
+```bash
+# CT 内: /var/log 配下からデータドライブへリンク
+ln -s /mnt/data/nfcapd /var/log/nfcapd
+ln -s /mnt/data/syslog-archive /var/log/syslog-archive
+ln -s /mnt/data/kea /var/log/kea
+```
+
+### NVMe #2 ディレクトリ構造
+
+```
+/mnt/data (NVMe #2, ext4, 512GB)
+├── nfcapd/                  ← NetFlow v9 ファイル (5 分ローテ)
+│   └── nfcapd.YYYYMMDDHHMMSS
+├── syslog-archive/          ← rsyslog 出力 (facility 別分離)
+│   ├── dns/                 ← DNS クエリログ (facility 0, tag: dns-forwarding)
+│   │   └── dns.log
+│   ├── conntrack/           ← conntrack NAT ログ (facility local2)
+│   │   └── conntrack.log
+│   ├── ndp/                 ← NDP テーブルダンプ (facility local1)
+│   │   └── ndp.log
+│   ├── dhcp/                ← DHCP リースログ
+│   │   └── dhcp.log
+│   └── all.log              ← 全ログ保険コピー (全 facility)
+└── kea/                     ← Kea forensic log (r3 から転送)
+    └── kea-legal.YYYYMMDDHHMMSS.txt
+```
+
+### rsyslog 設定 (local-server CT 内)
+
+`/etc/rsyslog.d/10-forensic.conf`:
+
+```
+# TCP で受信 (r3, r1, r2-gcp からの syslog)
+module(load="imtcp")
+input(type="imtcp" port="514")
+
+# --- facility 別ファイル出力 (NVMe #2) ---
+
+# DNS クエリログ (PowerDNS Recursor, facility 0)
+:syslogtag, contains, "pdns_recursor" /var/log/syslog-archive/dns/dns.log
+
+# NDP テーブルダンプ (facility local1)
+local1.* /var/log/syslog-archive/ndp/ndp.log
+
+# Conntrack NAT ログ (facility local2, r1 + r2-gcp)
+local2.* /var/log/syslog-archive/conntrack/conntrack.log
+
+# DHCP リースログ (Kea, facility daemon)
+:syslogtag, contains, "kea-dhcp4" /var/log/syslog-archive/dhcp/dhcp.log
+
+# 全ログ保険コピー (照会時のフォールバック)
+*.* /var/log/syslog-archive/all.log
+
+# --- 運用可視化: Alloy (zabbix-grafana VM) に転送 ---
+*.* @@192.168.11.6:1514
+```
+
+- **TCP (`@@`)** を使用 — ログ損失防止
+- **暗号化なし** — 同一 VLAN 11 内の通信、TLS 不要
+- Alloy への転送はポート `1514` (Alloy の syslog receiver、デフォルトポートとの衝突回避)
+
+### パッケージインストール
+
+```bash
+apt update && apt install -y \
+    nfdump \
+    rsyslog \
+    google-cloud-cli \
+    ca-certificates \
+    curl
+```
+
+## 10. nfcapd コレクター設定
+
+local-server CT (192.168.11.2) で nfcapd を稼働させ、VyOS (r3) からの NetFlow を受信する。nfcapd データは NVMe #2 上の `/var/log/nfcapd/` に保存する。
+
+### ディレクトリ準備
+
+```bash
+mkdir -p /var/log/nfcapd
+```
 
 ### インストール
 
@@ -480,49 +606,157 @@ WantedBy=multi-user.target
 
 パラメータ:
 
-- `-l /var/log/nfcapd` — 保存ディレクトリ
+- `-l /var/log/nfcapd` — 保存ディレクトリ (NVMe #2 上、シンボリックリンク経由)
 - `-p 2055` — 受信ポート
 - `-T all` — 全拡張フィールドを記録
 - `-t 300` — 5 分間隔でファイルローテーション
 
-## 10. 転送・アーカイブ (rsyslog → GCE → GCS)
+## 11. 転送・アーカイブ (local-server → GCS 直送)
 
-### rsyslog 転送設定 (VyOS → Local Server → GCE)
-
-VyOS のログ (DNS クエリ、DHCP forensic、NDP ダンプ) は syslog 経由で Local Server に転送し、さらに GCE に転送。
+### 全体転送フロー
 
 ```
-# VyOS → Local Server
+[イベント期間中: 継続的 GCS アップロード]
+  VyOS (r3)  ──syslog──→ local-server CT (rsyslog) ──→ ファイル保存 (NVMe #2)
+  VyOS (r3)  ──NetFlow──→ local-server CT (nfcapd)  ──→ ファイル保存 (NVMe #2)
+  r1         ──syslog──→ local-server CT (rsyslog)   ──→ ファイル保存 (NVMe #2)
+  r2-gcp     ──syslog──→ local-server CT (rsyslog)   ──→ ファイル保存 (NVMe #2)
+                                                           │
+                                                           └──→ gcloud storage rsync (5-15 分間隔)
+                                                                  ↓
+                                                           gs://bwai-forensic-2026/
+
+[運用可視化 (法執行ログとは独立)]
+  local-server CT (rsyslog) ──forward──→ Grafana Alloy (VM 101) → Grafana ダッシュボード
+```
+
+旧設計では local-server → GCE → GCS の 3 段階転送を想定していたが、GCE 中継は廃止し **local-server から GCS への直送** に簡素化した。理由:
+
+- venue Proxmox は借用機であり、イベント後に全データを取り出して初期化する必要がある。GCS にイベント中から継続的にアップロードしておくことで、搬送中の物理障害リスクを低減する
+- GCE 中継を挟む必要性が薄い（GCS への直送で十分、中間ノードの管理コスト削減）
+
+### rsyslog 転送設定 (VyOS → local-server)
+
+```
+# VyOS (r3) → local-server CT
 set system syslog host 192.168.11.2 facility all level info
-
-# Local Server rsyslog.conf → GCE 転送 (既存パイプライン活用)
-# *.* @@<gce-ip>:514
 ```
 
-### nfcapd ファイル転送 (rsync)
+r1 および r2-gcp の conntrack ログも同じ宛先に転送する (セクション 6, 6b 参照)。
+
+### rsyslog → Grafana Alloy 転送 (運用可視化用)
+
+local-server の rsyslog から zabbix-grafana VM (192.168.11.6) 上の Alloy にログを forward する。これにより Grafana でログのリアルタイム可視化が可能になる。**ログの原本はあくまで local-server 側に保持され、Alloy は運用可視化のための読み取り専用の経路** である。
+
+```
+# local-server rsyslog.conf (運用可視化用転送)
+*.* @@192.168.11.6:<alloy-syslog-port>
+```
+
+### GCS 認証 (サービスアカウント)
+
+local-server CT から GCS へ書き込むためのサービスアカウントを作成する。
 
 ```bash
-# cron (15 分間隔)
-*/15 * * * * rsync -az /var/log/nfcapd/ <gce-user>@<gce-ip>:/var/log/nfcapd/
+# SA 作成 (GCP プロジェクト側で事前実施)
+gcloud iam service-accounts create sa-forensic-writer \
+    --display-name="Forensic Log Writer"
+
+# forensic バケットへの書き込み権限のみ付与 (削除不可)
+gcloud storage buckets add-iam-policy-binding gs://bwai-forensic-2026 \
+    --member="serviceAccount:sa-forensic-writer@<project>.iam.gserviceaccount.com" \
+    --role="roles/storage.objectCreator"
+
+# SA キー発行
+gcloud iam service-accounts keys create /etc/gcs-sa-key.json \
+    --iam-account=sa-forensic-writer@<project>.iam.gserviceaccount.com
 ```
+
+local-server CT 内で認証を有効化:
+
+```bash
+gcloud auth activate-service-account --key-file=/etc/gcs-sa-key.json
+```
+
+権限を `objectCreator` に限定しているため、SA キーが漏洩しても既存オブジェクトの削除・上書きはできない。キーファイルは venue Proxmox のディスクワイプ時に自動的に消去される。
+
+### GCS 継続アップロード
+
+イベント期間中、local-server から GCS へ 5-15 分間隔で差分同期を行う。イベント終了後の一括転送ではなく、**継続的にアップロード** することで、venue Proxmox の搬送中に物理障害が発生しても GCS 側にデータが残る。
+
+`/etc/cron.d/gcs-sync`:
+
+```bash
+*/5  * * * * root gcloud storage rsync -r /var/log/nfcapd/         gs://bwai-forensic-2026/live/nfcapd/    >> /var/log/gcs-sync.log 2>&1
+*/5  * * * * root gcloud storage rsync -r /var/log/syslog-archive/ gs://bwai-forensic-2026/live/syslog/    >> /var/log/gcs-sync.log 2>&1
+*/15 * * * * root gcloud storage rsync -r /var/log/kea/            gs://bwai-forensic-2026/live/kea-legal/ >> /var/log/gcs-sync.log 2>&1
+```
+
+### GCS アップロード失敗検知
+
+Zabbix agent (zabbix-grafana VM 上) で `/var/log/gcs-sync.log` を監視し、`ERROR` や `FAILED` を検知したらアラートを発報する。
+
+Zabbix 側の設定:
+
+- **Item**: `log[/var/log/gcs-sync.log,"ERROR|FAILED",,,,]` (log 型、active agent)
+- **Trigger**: `{local-server:log[...].logseverity()} >= 4` → Severity: Warning
+- **Action**: Google Chat webhook で NOC に通知
+
+※ local-server 上で Zabbix agent を稼働させ、zabbix-grafana VM の Zabbix Server に接続する。agent は監視用途のみで、forensic ログの責務には影響しない。
 
 ### GCS 保存先
 
-ログは保持ポリシー (Retention Policy) 付きの `bwai-compliance-logs` バケットに保存 (180 日保持、ロック済み)。詳細はセクション 11「ログ封印」を参照。
+法執行対応ログは年度別の forensic バケットに保存する。保持ポリシー (Retention Policy) のロックはイベント終了後の最終検証完了時に行う（セクション 11 参照）。
 
-## 11. イベント終了後のログ封印
+```
+gs://bwai-forensic-2026/
+  live/                    ← イベント中の継続アップロード
+    nfcapd/
+    syslog/
+    kea-legal/
+  seal/                    ← 封印ファイル + TSA 応答
+    preliminary/           ← 会場での予備封印
+    final/                 ← 自宅ラボでの最終封印
+```
+
+運用監視データ (Zabbix DB ダンプ等) は別バケット `gs://bwai-monitoring-2026/` に保存し、WORM ロックは掛けない。
+
+## 12. イベント終了後のログ封印
 
 イベント終了後、ログファイルの改ざんがないことを証明するため、全ログのハッシュを取得し複数人で保存する。
 
-### 封印スクリプト (`/config/scripts/seal-logs.sh`)
+### 重要: 借用機制約
+
+venue Proxmox (Minisforum MS-01) は**借用機**であり、イベント終了後に以下のフローで処理する:
+
+1. 会場で電源オフ
+2. 自宅ラボへ物理搬送
+3. 自宅ラボで起動し、**GCS への転送完了を確認**
+4. 転送完了確認後に初期化（ディスクワイプ）
+5. 借用元へ返送
+
+**初期化は GCS 転送の完了確認が取れるまで行わない。** 初期化後はローカルデータが不可逆に失われるため、GCS 側のオブジェクト数・サイズ・ハッシュが local-server のローカルデータと一致することを検証してから進める。
+
+封印は **2 段階** で実施する:
+
+1. **予備封印 (会場、電源オフ前)**: イベント終了直後に local-server CT 上で実施。搬送中の改ざん検知の基準点となる
+2. **最終封印 (自宅ラボ)**: GCS への最終アップロード・検証完了後に実施。照会対応の正式な根拠となる
+
+GCS Retention Policy のロックは**最終封印・検証完了後**に行う。予備封印の時点ではロックしない（自宅ラボからの追加アップロードの余地を残すため）。
+
+### 封印スクリプト (`seal-logs.sh`)
+
+local-server CT 上で実行する。
 
 ```bash
 #!/bin/bash
-# イベント終了後に実行: 全ログの SHA-256 ハッシュを生成
+# 全ログの SHA-256 ハッシュを生成
+SEAL_PHASE="${1:-preliminary}"  # "preliminary" or "final"
 SEAL_DATE=$(date -u +"%Y%m%dT%H%M%SZ")
-SEAL_FILE="/var/log/log-seal-${SEAL_DATE}.txt"
+SEAL_FILE="/var/log/log-seal-${SEAL_PHASE}-${SEAL_DATE}.txt"
 
 echo "=== BwAI Network Log Seal ===" > "$SEAL_FILE"
+echo "Phase: ${SEAL_PHASE}" >> "$SEAL_FILE"
 echo "Sealed at: ${SEAL_DATE}" >> "$SEAL_FILE"
 echo "Sealed by: $(whoami)@$(hostname)" >> "$SEAL_FILE"
 echo "" >> "$SEAL_FILE"
@@ -535,7 +769,7 @@ done
 
 # DNS クエリログ
 echo "--- DNS query log ---" >> "$SEAL_FILE"
-sha256sum /var/log/syslog* 2>/dev/null | grep -v "No such" >> "$SEAL_FILE"
+sha256sum /var/log/syslog-archive/* 2>/dev/null | grep -v "No such" >> "$SEAL_FILE"
 
 # DHCP forensic log
 echo "--- DHCP forensic log ---" >> "$SEAL_FILE"
@@ -543,26 +777,76 @@ find /var/log/kea -type f -name "kea-legal*" | sort | while read -r f; do
     sha256sum "$f" >> "$SEAL_FILE"
 done
 
-# Conntrack イベントログ (r1 から転送済み)
+# Conntrack イベントログ (r1/r2-gcp から転送済み)
 echo "--- Conntrack NAT log ---" >> "$SEAL_FILE"
-grep "conntrack-nat" /var/log/syslog* 2>/dev/null | sha256sum >> "$SEAL_FILE"
+grep "conntrack-nat" /var/log/syslog-archive/* 2>/dev/null | sha256sum >> "$SEAL_FILE"
 
-# NDP ダンプ (syslog 内)
+# NDP ダンプ
+echo "--- NDP dump ---" >> "$SEAL_FILE"
+grep "ndp-dump" /var/log/syslog-archive/* 2>/dev/null | sha256sum >> "$SEAL_FILE"
+
+echo "" >> "$SEAL_FILE"
 echo "--- Seal file hash ---" >> "$SEAL_FILE"
-# 封印ファイル自体のハッシュ (最終行を除く) を表示
 sha256sum "$SEAL_FILE"
 ```
 
-### 封印手順
+### 封印手順 (2 段階)
 
-1. **イベント終了直後**に封印スクリプトを実行
-2. 生成された封印ファイル (`log-seal-<timestamp>.txt`) の **SHA-256 ハッシュ**を取得
-3. ハッシュを**複数の NOC メンバー** (最低 2 名) がそれぞれ独立に保存
-   - 個人の端末にテキストファイルとして保存
-   - チャット (Slack / Discord 等) に投稿して記録
-   - 写真撮影 (物理的な記録) も有効
-4. RFC 3161 タイムスタンプを取得 (後述)
-5. 封印ファイル + タイムスタンプ応答を GCS 保持ポリシー付きバケットにアップロード
+#### Phase 1: 予備封印 (会場、電源オフ前)
+
+1. イベント終了直後、local-server CT 上で封印スクリプトを実行
+   ```bash
+   bash seal-logs.sh preliminary
+   ```
+2. 予備封印ファイルの SHA-256 ハッシュを取得
+3. NOC メンバー **2 名以上** がハッシュを独立保存 (Google Chat 投稿、端末テキスト保存、写真撮影)
+4. RFC 3161 タイムスタンプを取得
+5. 予備封印ファイル + TSA 応答を GCS にアップロード
+   ```bash
+   gcloud storage cp /var/log/log-seal-preliminary-*.txt gs://bwai-forensic-2026/seal/preliminary/
+   gcloud storage cp seal.tsr gs://bwai-forensic-2026/seal/preliminary/
+   ```
+6. 最終 GCS rsync を実行し、差分ゼロを確認
+7. venue Proxmox を電源オフ
+
+#### Phase 2: 最終封印 (自宅ラボ)
+
+1. 自宅ラボで venue Proxmox を起動し local-server CT を開始
+2. 予備封印ファイルのハッシュを再計算し、搬送前の記録と一致することを確認（搬送中の改ざん検知）
+3. GCS 側のオブジェクト数・サイズを確認し、欠損があれば追加アップロード
+4. 最終封印スクリプトを実行
+   ```bash
+   bash seal-logs.sh final
+   ```
+5. 最終封印ファイルの SHA-256 ハッシュを取得
+6. NOC メンバー **2 名以上** がハッシュを独立保存
+7. RFC 3161 タイムスタンプを取得
+8. 最終封印ファイル + TSA 応答を GCS にアップロード
+   ```bash
+   gcloud storage cp /var/log/log-seal-final-*.txt gs://bwai-forensic-2026/seal/final/
+   gcloud storage cp seal.tsr gs://bwai-forensic-2026/seal/final/
+   ```
+9. **GCS 転送完了の検証** (初期化前の最終ゲート)
+   ```bash
+   # ローカルファイル数と GCS オブジェクト数の突き合わせ
+   LOCAL_COUNT=$(find /var/log/nfcapd /var/log/syslog-archive /var/log/kea -type f | wc -l)
+   GCS_COUNT=$(gcloud storage ls -r gs://bwai-forensic-2026/live/ | wc -l)
+   echo "Local: ${LOCAL_COUNT}, GCS: ${GCS_COUNT}"
+   # → 一致していることを確認。不一致の場合は追加アップロード
+
+   # サンプリングハッシュ検証 (任意のファイルを GCS からダウンロードしてハッシュ照合)
+   gcloud storage cp gs://bwai-forensic-2026/live/nfcapd/nfcapd.YYYYMMDDHHMMSS /tmp/
+   sha256sum /tmp/nfcapd.YYYYMMDDHHMMSS
+   sha256sum /var/log/nfcapd/nfcapd.YYYYMMDDHHMMSS
+   # → 一致していることを確認
+   ```
+10. **GCS Retention Policy をロック** (不可逆)
+    ```bash
+    gcloud storage buckets update gs://bwai-forensic-2026 \
+        --retention-period=15552000 --lock-retention-period
+    ```
+11. **venue Proxmox (MS-01) のディスクをワイプ** — 転送完了確認・WORM ロック完了後にのみ実施
+12. 借用元へ返送
 
 ### RFC 3161 タイムスタンプ (TSA)
 
@@ -594,32 +878,25 @@ wget https://freetsa.org/files/tsa.crt -O freetsa-tsa.crt
 
 ### GCS Retention Policy (WORM)
 
-ログアーカイブ用の GCS バケットに保持ポリシー (Retention Policy) を設定し、保持期間中はオブジェクトの削除・上書きを物理的に不可能にする。ポリシーをロックすると、ポリシー自体の削除・短縮も不可能になる。
+法執行対応ログ用の GCS バケットに保持ポリシー (Retention Policy) を設定し、保持期間中はオブジェクトの削除・上書きを物理的に不可能にする。ポリシーをロックすると、ポリシー自体の削除・短縮も不可能になる。
+
+**重要**: Retention Policy のロックは**不可逆**であり、ロック後 180 日間の課金が確定する。**最終封印・検証完了後** (Phase 2 ステップ 9) に行うこと。イベント期間中やアップロード途中でロックしない。
 
 ```bash
-# バケット作成
-gcloud storage buckets create gs://bwai-compliance-logs \
+# バケット作成 (イベント前に実施)
+gcloud storage buckets create gs://bwai-forensic-2026 \
     --location=asia-northeast1
 
-# 保持ポリシー設定 (180 日 = 15552000 秒)
-gcloud storage buckets update gs://bwai-compliance-logs \
+# 保持ポリシー設定 (180 日 = 15552000 秒、ロックはまだ掛けない)
+gcloud storage buckets update gs://bwai-forensic-2026 \
     --retention-period=15552000
 
-# ポリシーをロック (不可逆: ロック後はポリシーの削除・短縮不可)
-gcloud storage buckets update gs://bwai-compliance-logs \
-    --lock-retention-period
+# ポリシーのロックは Phase 2 (自宅ラボでの最終封印) 完了後に実施
+# gcloud storage buckets update gs://bwai-forensic-2026 \
+#     --lock-retention-period
 ```
 
 ロック後はプロジェクトオーナーでも保持期間中のオブジェクト削除は不可能。
-
-### 封印後のアップロード
-
-```bash
-# 封印ファイル + TSA 応答を保持ポリシー付きバケットにアップロード
-gcloud storage cp /var/log/log-seal-${SEAL_DATE}.txt gs://bwai-compliance-logs/seal/
-gcloud storage cp seal.tsr gs://bwai-compliance-logs/seal/
-gcloud storage cp seal.tsq gs://bwai-compliance-logs/seal/
-```
 
 ### 正当性証明の三層構造
 
@@ -631,49 +908,61 @@ gcloud storage cp seal.tsq gs://bwai-compliance-logs/seal/
 
 ### 検証方法
 
-照会時にログの改ざんがないことを証明する:
+照会時にログの改ざんがないことを証明する。照会対応は GCS 上のデータのみで完結する (venue Proxmox は借用機のため返却済み)。
 
 ```bash
-# 1. 封印ファイルのハッシュを再計算し、NOC メンバーの保存済みハッシュと照合
-sha256sum /var/log/log-seal-*.txt
+# 1. 最終封印ファイルのハッシュを再計算し、NOC メンバーの保存済みハッシュと照合
+gcloud storage cp gs://bwai-forensic-2026/seal/final/log-seal-final-*.txt /tmp/
+sha256sum /tmp/log-seal-final-*.txt
 
-# 2. 個別ログファイルのハッシュを封印ファイルの記録と照合
-sha256sum /var/log/nfcapd/nfcapd.202608101430 | diff - <(grep "nfcapd.202608101430" /var/log/log-seal-*.txt)
+# 2. GCS 上の個別ログファイルのハッシュを封印ファイルの記録と照合
+gcloud storage cp gs://bwai-forensic-2026/live/nfcapd/nfcapd.202608101430 /tmp/
+sha256sum /tmp/nfcapd.202608101430 | diff - <(grep "nfcapd.202608101430" /tmp/log-seal-final-*.txt)
 
 # 3. TSA タイムスタンプの検証 (封印ファイルが TSA 署名時点から無改変)
-openssl ts -verify -data /var/log/log-seal-*.txt -in seal.tsr \
+gcloud storage cp gs://bwai-forensic-2026/seal/final/seal.tsr /tmp/
+openssl ts -verify -data /tmp/log-seal-final-*.txt -in /tmp/seal.tsr \
     -CAfile freetsa-cacert.pem -untrusted freetsa-tsa.crt
 
 # 4. GCS Retention Policy の保持状態を確認
-gcloud storage objects describe gs://bwai-compliance-logs/seal/log-seal-*.txt \
+gcloud storage objects describe gs://bwai-forensic-2026/seal/final/log-seal-final-*.txt \
     --format="value(retentionExpirationTime)"
 # → 保持期限の日時が表示される
 ```
 
-## 12. 保存期間とローテーション
+## 13. 保存期間とローテーション
 
-| ログ種別 | ローカル保存 | GCE 保存 | GCS 保存 |
-|---|---|---|---|
-| NetFlow (nfcapd) | 30 日 | 90 日 | 180 日 |
-| DNS クエリログ | 30 日 | 90 日 | 180 日 |
-| DHCP forensic log | 30 日 | 90 日 | 180 日 |
-| NDP テーブルダンプ | 30 日 | 90 日 | 180 日 |
-| Conntrack NAT ログ (r1) | 30 日 | 90 日 | 180 日 |
+### 保存場所と保持期間
 
-ローカルのローテーション:
+venue Proxmox (MS-01) は**借用機**であり、イベント終了後に自宅ラボへ搬送し、**GCS 転送完了を確認してから**初期化・返送する。ローカル保存はイベント期間中〜自宅ラボでの転送完了確認までとし、長期保管は GCS で行う。GCE 中継は廃止した。
 
-```bash
-# /etc/logrotate.d/compliance-logs
-/var/log/nfcapd/*.nfcapd {
-    daily
-    rotate 30
-    compress
-    missingok
-    notifempty
-}
-```
+| ログ種別 | ローカル保存 (local-server CT, NVMe #2) | GCS 保存 (`bwai-forensic-2026`) |
+|---|---|---|
+| NetFlow (nfcapd) | イベント期間中のみ | **180 日 (WORM)** |
+| DNS クエリログ | イベント期間中のみ | **180 日 (WORM)** |
+| DHCP forensic log | イベント期間中のみ | **180 日 (WORM)** |
+| NDP テーブルダンプ | イベント期間中のみ | **180 日 (WORM)** |
+| Conntrack NAT ログ (r1) | イベント期間中のみ | **180 日 (WORM)** |
+| Conntrack NAT ログ (r2-gcp) | イベント期間中のみ | **180 日 (WORM)** |
 
-## 13. 照会対応手順
+### ローカルのローテーション
+
+イベント期間中（通常 1-2 日）はローテーション不要。ただし nfcapd は `-t 300` で 5 分間隔のファイルローテーションを内部で行う。
+
+### イベント後のデータ取り出し
+
+1. 会場で予備封印 → 電源オフ
+2. 自宅ラボに搬送
+3. local-server CT を起動し、GCS への最終同期・検証を実施
+4. 最終封印 → GCS WORM ロック
+5. **GCS 転送完了を検証**（ファイル数・サイズ・サンプルハッシュの一致確認）
+6. 確認完了後、venue Proxmox (MS-01) のディスクをワイプ → 借用元へ返送
+
+**注意**: 初期化はステップ 5 の転送完了確認が取れるまで行わない。初期化後はローカルデータが不可逆に失われる。
+
+詳細はセクション 11「ログ封印」および [`venue-proxmox.md`](venue-proxmox.md) を参照。
+
+## 14. 照会対応手順
 
 ### nfdump による NetFlow 検索
 
