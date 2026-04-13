@@ -48,17 +48,20 @@ MS-01 はオンボードで Intel I226-V 2.5GbE x2 および Intel X710 SFP+ 10G
 
 | NIC | Proxmox 名 | チップ | ドライバ | 速度 | Proxmox 上の扱い | 役割 |
 |-----|-----------|--------|---------|------|-----------------|------|
-| I226-V #1 | `nic0` | Intel I226-V | igc | 2.5GbE | ホスト側 `vmbr_wan` (bridge) → VM に virtio-net で提供 | **アップリンク** (→ blackbox) |
+| I226-V #1 | `nic0` | Intel I226-V | igc | 2.5GbE | 未使用 | 予備 |
 | I226-V #2 | `nic1` | Intel I226-V | igc | 2.5GbE | 未使用 | 予備 |
 | X710 SFP+ #1 | `nic2` | Intel X710 | i40e | 10GbE | ホスト側 `vmbr_trunk` (VLAN-aware bridge) | **トランク** (→ PoE スイッチ) |
-| X710 SFP+ #2 | `nic3` | Intel X710 | i40e | 10GbE | 未使用 | 予備 |
+| X710 SFP+ #2 | `nic3` | Intel X710 | i40e | 10GbE | ホスト側 `vmbr_wan` (bridge) → VM に virtio-net で提供 | **アップリンク** (→ blackbox / 自宅 r1) |
 | Intel AX211 | `wlp90s0` | Intel AX211 | — | Wi-Fi 6E | 未使用 | — |
 
 #### NIC 役割の割り当て理由
 
-- **X710 SFP+ #1 → トランク**: 10GbE で VLAN 11/30/40 の全トラフィックを処理。i40e ドライバは安定かつ高性能。Proxmox ホストも `vmbr_trunk.11` 経由で VLAN 11 トランク上に管理 IP を持つ
-- **I226-V #1 → アップリンク**: 会場の上流回線は 1GbE 未満が想定され、2.5GbE の帯域は十分。オンボード NIC であり旧設計の USB NIC のような物理的脱落リスクがない。`vmbr_wan` ブリッジに収容し、VM には virtio-net で提供する
-- **nic1 / nic3 → 予備**: 障害時のフェイルオーバーや将来の拡張用に確保。現時点では未使用 (link down)
+- **X710 SFP+ #1 (nic2) → トランク**: 10GbE で VLAN 11/30/40 の全トラフィックを処理。i40e ドライバは安定かつ高性能。Proxmox ホストも `vmbr_trunk.11` 経由で VLAN 11 トランク上に管理 IP を持つ
+- **X710 SFP+ #2 (nic3) → アップリンク**: 10GbE SFP+ DAC で自宅 r1 eth3 (X710 10G SFP+) と直結。i226-V 2.5GbE から移行した理由は以下:
+  - パフォーマンスチューニング時の実測で、nic0 (igc 2.5G) 経由では WG トンネル越しの単方向スループットが ~900 Mbps で頭打ち
+  - nic3 (i40e 10G SFP+) + FW 9.56 への移行で **Linux ↔ Linux の WG トンネル越し実測で TCP 単フロー 1.22 Gbps / 並列 4 フロー 5.4 Gbps / bidir aggregate 5.15 Gbps** まで拡張 (詳細は「性能測定結果」節を参照)
+  - i40e ドライバの方が IRQ 分散 (最大 20 queues) と adaptive coalescing が洗練されており、高 BDP トラフィックで有利
+- **nic0 / nic1 → 予備**: 障害時のフェイルオーバーや将来 ISP プロキシ環境 (RJ45 WAN) への再接続用に確保
 
 #### アップリンク NIC の接続方式: ホスト側ブリッジ + virtio-net
 
@@ -80,15 +83,36 @@ net3: virtio=BC:24:11:76:48:AC,bridge=vmbr_wan,queues=4
 
 **Intel X710 SFP+ (nic2, nic3)**: i40e ドライバ。Proxmox カーネルに標準搭載。SFP+ モジュールの互換性に注意（Intel 純正または DAC ケーブル推奨）。
 
+**firmware 要件**: **9.56 以上** を推奨。9.20 以下の旧 FW では kernel 6.x 側 libie の MAC フィルタ追加時に `LIBIE_AQ_RC_ENOSPC` エラーが発生し、overflow promiscuous モードへ強制遷移してブリッジ経由の TX 性能が著しく劣化する。Intel NVM Update Package (Release 31.1 = FW 9.56) で両ポートを更新すること。更新手順:
+
+```bash
+cd /root/nvm/NVMUpdatePackage/700_Series/700Series/Linux_x64
+./nvmupdate64e -u -l update.log -o result.xml -b -c nvmupdate.cfg
+# 完了後、Proxmox host を reboot して新 FW 反映
+```
+
+両ポート (nic2, nic3) は同一チップ内 function なので同時更新される。
+
+#### nic3 (WAN) の i40e パフォーマンスチューニング
+
+WG トンネル越しの高スループット維持のため、`/etc/network/interfaces` の nic3 定義に post-up hook で以下を永続適用している:
+
+| 項目 | 値 | 理由 |
+|------|-----|------|
+| ring RX/TX | 4096 (default 512) | burst 時の drop 耐性確保。max 8160 の半分で latency 影響を最小化 |
+| ntuple-filters | off | NIC 側 flow director が unintended に flow を特定 queue に steer するのを抑止 |
+
+combined (channels) はデフォルトの 20 を維持する。IRQ 分散を最大化するため減らさない。
+
 ## Proxmox 仮想ネットワーク設計
 
 ### ブリッジ構成
 
 | ブリッジ | bridge-ports | モード | Proxmox 側 L3 | 用途 |
 |---------|-------------|--------|--------------|------|
-| `vmbr_trunk` | `nic2` (X710 SFP+ 10GbE) | **VLAN-aware** (`bridge-vids 2-4094`) | なし (L2 のみ) | VyOS VM / Zabbix+Grafana VM / local-server CT / Proxmox 管理 IP の VLAN トランク |
+| `vmbr_trunk` | `nic2` (X710 SFP+ #1 10GbE) | **VLAN-aware** (`bridge-vids 2-4094`) | なし (L2 のみ) | VyOS VM / Zabbix+Grafana VM / local-server CT / Proxmox 管理 IP の VLAN トランク |
 | `vmbr_trunk.11` | (親: vmbr_trunk) | tagged child (VID 11) | **`192.168.11.3/24`** (管理 IP) + gateway `192.168.11.1` | Proxmox ホスト自身の管理 IP を VLAN 11 tagged で集約 |
-| `vmbr_wan` | `nic0` (I226-V 2.5GbE) | plain bridge | なし (L2 のみ) | I226-V 2.5GbE → VyOS VM の WAN アップリンク |
+| `vmbr_wan` | `nic3` (X710 SFP+ #2 10GbE) | plain bridge | なし (L2 のみ) | X710 SFP+ 10GbE → VyOS VM の WAN アップリンク |
 
 - **Proxmox ホストは管理 VLAN 11 にのみ参加する**。VLAN 30/40 は VyOS VM および将来の VM/CT が各自 tagged で参加する
 - **スイッチの trunk `native vlan` 設定に依存しない**。全員が tagged VLAN 11 で自力参加する設計 ([`venue-switch.md`](venue-switch.md) 参照)
@@ -105,14 +129,17 @@ iface nic1 inet manual
 
 iface nic2 inet manual
 
+# WAN uplink (X710 SFP+ 10GbE, i40e) — NIC tuning を post-up で適用
 iface nic3 inet manual
+        post-up ethtool -G nic3 rx 4096 tx 4096 || true
+        post-up ethtool -K nic3 ntuple off || true
 
 iface nic4 inet manual
 
 
 source /etc/network/interfaces.d/*
 
-# VLAN トランクブリッジ (X710 SFP+ → PoE スイッチ、VLAN 11/30/40)
+# VLAN トランクブリッジ (X710 SFP+ #1 → PoE スイッチ、VLAN 11/30/40)
 auto vmbr_trunk
 iface vmbr_trunk inet manual
         bridge-ports nic2
@@ -127,10 +154,10 @@ iface vmbr_trunk.11 inet static
         address 192.168.11.3/24
         gateway 192.168.11.1
 
-# WAN アップリンクブリッジ (I226-V 2.5GbE → blackbox)
+# WAN アップリンクブリッジ (X710 SFP+ #2 → r1 eth3 直結、10GbE)
 auto vmbr_wan
 iface vmbr_wan inet manual
-        bridge-ports nic0
+        bridge-ports nic3
         bridge-stp off
         bridge-fd 0
 ```
@@ -138,9 +165,10 @@ iface vmbr_wan inet manual
 ### ネットワークトポロジ
 
 ```
-会場アップリンク (blackbox / proxy)
+会場アップリンク (blackbox / proxy) / 自宅 r1 eth3 (10G SFP+)
   │
-  └─ Intel I226-V 2.5GbE (nic0, igc)
+  └─ Intel X710 SFP+ #2 10GbE (nic3, i40e, FW 9.56+)
+       │  [ring 4096, ntuple off, combined 20]
        │
        └─ vmbr_wan (plain bridge, inet manual)
             │
@@ -152,7 +180,7 @@ iface vmbr_wan inet manual
                  │    └─ eth2.40 → 192.168.40.1/22 (user)
                  └─ [内部] wstunnel (podman) → WireGuard
 
-Intel X710 SFP+ 10GbE (nic2, i40e)
+Intel X710 SFP+ #1 10GbE (nic2, i40e)
   │
   └─ vmbr_trunk (VLAN-aware, bridge-vids 2-4094)
        ├─ tap100i2 (VyOS VM eth2, VLAN トランク透過)
@@ -167,7 +195,7 @@ Intel X710 SFP+ 10GbE (nic2, i40e)
 
 | 種別 | VMID | 名称 | OS | vCPU | RAM | ディスク | NIC | 役割 |
 |------|------|------|-----|------|-----|---------|-----|------|
-| VM | 100 | r3-vyos | VyOS | 4 (host) | 4GB | NVMe#1 8GB | `net2: virtio,bridge=vmbr_trunk,trunks=2-4094,queues=4` + `net3: virtio,bridge=vmbr_wan,queues=4` | ルーター、DNS/DHCP、BGP、NetFlow、wstunnel (podman) |
+| VM | 100 | r3-vyos | VyOS | 4 (host, **affinity 0-11**) | 4GB | NVMe#1 8GB | `net2: virtio,bridge=vmbr_trunk,trunks=2-4094,queues=4` + `net3: virtio,bridge=vmbr_wan,queues=4` | ルーター、DNS/DHCP、BGP、NetFlow、wstunnel (podman) |
 | CT | 200 | local-server | Debian 12 | 2 | 8GB | NVMe#1 16GB (root) + NVMe#2 マウント (データ) | `net0: name=eth0,bridge=vmbr_trunk,tag=11,ip=192.168.11.2/24,gw=192.168.11.1` | rsyslog, nfcapd (法執行対応ログ集約専用) |
 | CT | 201 | zabbix-grafana | Debian 12 | 4 | 8GB | NVMe#1 32GB | `net0: name=eth0,bridge=vmbr_trunk,tag=11,ip=192.168.11.6/24,gw=192.168.11.1` | Zabbix Server + DB + Grafana + Alloy (運用監視・可視化・ログ収集) |
 
@@ -181,6 +209,7 @@ Intel X710 SFP+ 10GbE (nic2, i40e)
 - r3-vyos VM は `net0`/`net1` を持たない。トランクは `net2` (virtio)、アップリンクは `net3` (virtio, `vmbr_wan` 経由) に集約。両方 `queues=4` で virtio multiqueue を有効化
 - `trunks=2-4094` により Proxmox は tap100i2 に VLAN 2-4094 を tagged で登録する。これが抜けていると VLAN-aware ブリッジが tagged フレームを drop する
 - local-server CT (200) および zabbix-grafana CT (201) は VLAN-aware ブリッジの `tag=11` 指定で VLAN 11 に参加する
+- r3-vyos VM には `affinity: 0-11` / `numa: 1` / `agent: 1` を設定する。i9-12900H ハイブリッド構成で P-core (CPU 0-11) のみを使い、WG 暗号化 workqueue が E-core (CPU 12-19) に migration するのを防止する。`agent: 1` は qemu-guest-agent 連携用で、VyOS 側は別途パッケージインストールが必要
 
 ### zabbix-grafana CT の構成方針
 
@@ -227,7 +256,7 @@ Intel X710 SFP+ 10GbE (nic2, i40e)
 
 ### リソース割り振りの根拠
 
-- **r3-vyos (4GB, 4 vCPU, CPU host)**: WireGuard 暗号化と virtio multiqueue の割り込み処理を並列化するため 4 vCPU を割り当て。i9-12900H の AES-NI/AVX2 を活用するため CPU type は `host` を指定。BGP・DNS/DHCP・Flow Accounting・wstunnel (podman) を同時処理。10GbE トランクに移行したが WireGuard 対向 (自宅回線) がボトルネックのため旧 3 vCPU からの増分は余裕確保が主目的。RAM 4GB は現行運用で十分。ディスクは設定とログ程度のため 8GB
+- **r3-vyos (4GB, 4 vCPU, CPU host, affinity 0-11, numa 1)**: WireGuard 暗号化と virtio multiqueue の割り込み処理を並列化するため 4 vCPU を割り当て。i9-12900H の AES-NI/AVX2 を活用するため CPU type は `host` を指定。`affinity: 0-11` で P-core (6P×2HT=12 論理) に限定し、E-core (CPU 12-19, 3.8GHz) へのスケジュールを防ぐ。BGP・DNS/DHCP・Flow Accounting・wstunnel (podman) を同時処理。自宅 r1 と 10G SFP+ 直結した検証環境における WG トンネル越し実測値は後述「性能測定結果」節を参照。RAM 4GB は現行運用で十分。ディスクは設定とログ程度のため 8GB
 - **zabbix-grafana (8GB, 4 vCPU, CT 201)**: Zabbix Server + DB + Grafana + Alloy が同居する運用監視の中核 CT。旧 VM 101 (Ubuntu Server + Docker Compose) を廃止し、Debian 12 LXC CT に直インストールで再作成。200 名規模のイベントで 30 台程度のデバイス (VyOS 3 台、スイッチ、AP、Proxmox、GCE) を SNMP/agent で監視。Grafana のダッシュボードレンダリングと Alloy のログ処理に対応するため 8GB を割り当て。Docker オーバーヘッドがないため同一スペックでも VM 比で効率が良い。ディスク 32GB は Zabbix DB + Grafana データに十分
 - **local-server (8GB, 2 vCPU)**: 法執行対応ログ集約専用。nfcapd (NetFlow v9 コレクタ) と rsyslog (syslog アグリゲータ) のみ稼働する軽量構成。2 vCPU で十分な処理能力。8GB RAM は rsyslog のバッファリングと nfcapd のファイル I/O キャッシュに使用。ルートディスクは 16GB (OS + ツール)、ログデータの実体は NVMe #2 (512GB) にマウントして書き込む
 - **Proxmox ホスト (4GB)**: Web UI のレスポンス、カーネルバッファ、3 VM/CT の virtio I/O 処理に対応
@@ -318,11 +347,17 @@ stop container wstunnel
   │                                                  │
   │  vmbr_trunk (nic2, VLAN-aware, VID 2-4094)       │
   │   └ vmbr_trunk.11 → 192.168.11.3/24              │
-  │  vmbr_wan (nic0, plain bridge)                    │
+  │  vmbr_wan (nic3, plain bridge)                    │
   ├──────────────────────────────────────────────────┤
   │ [SFP+] X710 10GbE  (nic2) │── トランク (tagged VLAN 11/30/40) ──→ PoE スイッチ
-  │ [SFP+] X710 10GbE  (nic3) │   (予備)
-  │ [RJ45] I226-V 2.5GbE (nic0) │── vmbr_wan ── virtio net3 ──→ VyOS VM eth1 ──→ blackbox
+  │ [SFP+] X710 10GbE  (nic3) │── vmbr_wan ── virtio net3 ──→ VyOS VM eth1 ──→ blackbox / 自宅 r1 eth3
+  │ [RJ45] I226-V 2.5GbE (nic0) │   (予備)
   │ [RJ45] I226-V 2.5GbE (nic1) │   (予備)
   └──────────────────────────────────────────────────┘
 ```
+
+## 性能測定結果
+
+実測値・計測手順は [`../investigation/wg-throughput-measurement.md`](../investigation/wg-throughput-measurement.md) を参照。
+
+**結論サマリ**: Linux↔Linux で TCP 並列 4 stream 約 5 Gbps、bidir aggregate 約 5.15 Gbps を達成。200 名規模の同時利用に対し r3/r1 共に十分な余裕。Windows 単フロー TX のみ約 240 Mbps と OS 制約あり (並列接続では問題なし)。

@@ -24,8 +24,9 @@ LOG_TAG="pd-update-venue"
 log() { logger -t "$LOG_TAG" "$1"; }
 
 # --- 1. dum0 から現在のプレフィックスを取得 ---
-CURRENT_ADDR=$(ip -6 addr show dev dum0 scope global -temporary \
-    | grep -oP '(?<=inet6 )\S+(?=/64)' | head -1)
+# DHCPv6-PD で付与された global /64 を flags に依存せず拾う
+CURRENT_ADDR=$(ip -6 addr show dev dum0 scope global \
+    | awk '/inet6 / {print $2}' | cut -d/ -f1 | head -1)
 
 if [ -z "$CURRENT_ADDR" ]; then
     # dum0 にグローバル IPv6 がない (PPPoE 未接続 or PD 未取得)
@@ -61,7 +62,7 @@ fi
 
 if [ "$NEW_PREFIX" = "$OLD_PREFIX" ]; then
     # 変更なし — ルートが消えていないか確認だけ行う
-    if ! ip -6 route show "$NEW_PREFIX" dev wg0 2>/dev/null | grep -q wg0; then
+    if ! ip -6 route show "$NEW_PREFIX" dev wg0 2>/dev/null | grep -q .; then
         log "WARN: wg0 route missing for $NEW_PREFIX, re-adding"
         ip -6 route del "$NEW_PREFIX" dev dum0 2>/dev/null
         ip -6 route replace "$NEW_PREFIX" dev wg0 metric 100
