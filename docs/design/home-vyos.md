@@ -2,597 +2,201 @@
 
 ## 概要
 
-自宅ルーター r1 (VyOS)。家族用ネットワーク 192.168.10.0/24 と会場 VPN・GCP トランジットを担う。
+自宅ルーター r1 (VyOS)。家族用ネットワーク 192.168.10.0/24 と会場 VPN・GCP トランジットを担う。AS65002。
 
-IX3315 からの移行記録は [`../investigation/ix3315-migration.md`](../investigation/ix3315-migration.md) を参照。
+IX3315 からの移行記録は [`../investigation/ix3315-migration.md`](../investigation/ix3315-migration.md)、投入用コマンド集は [`../configs/r1-home.conf`](../configs/r1-home.conf) を参照。
 
-## VyOS インターフェース設計
+## 物理構成
 
-### 物理構成
+- **X710-DA4**: 4 ポート SFP+ (10GbE)。FS SFP-10GM-T-30 (10GBase-T SFP+ モジュール) を使用。NVM 9.56 にアップデート済み (7.00 ではベンダーロックあり)
+- **オンボード NIC**: Intel I219-V 1GbE (ASRock B360M-ITX/ac)。AP 接続に使用
 
-- **X710-DA4**: 4ポート SFP+ (10GbE)。FS SFP-10GM-T-30 (10GBase-T SFP+ モジュール) を使用。NVM 9.56 にアップデート済み (7.00 ではベンダーロックあり)。
-- **オンボード NIC**: Intel I219-V 1GbE (ASRock B360M-ITX/ac)。AP 接続に使用。
+### インターフェースマッピング
 
-#### インターフェースマッピング (確定)
-
-| ethN | 物理 NIC | 論理名 | 役割 | 備考 |
-|------|----------|--------|------|------|
-| eth0 | オンボード I219-V 1GbE | ETH-AP | LAN — AP (br0 メンバー) | Wi-Fi AP |
-| eth1 | X710-DA4 (SFP+ + RJ45 モジュール) | ETH-WAN | WAN (PPPoE) → pppoe0 | OPTAGE 回線終端 |
-| eth2 | X710-DA4 (SFP+ + RJ45 モジュール) | ETH-PC | LAN — デスクトップPC (br0 メンバー) | |
-| eth3 | X710-DA4 (SFP+) | — | 検証用トランジット (r3 直結時) | |
-| eth4 | X710-DA4 (SFP+) | — | 未使用 | |
-| — | — | — | WireGuard 会場 VPN + BGP | wg0 |
-| — | — | — | WireGuard GCP (r2-gcp) | wg1 |
+| ethN | 物理 NIC | 論理名 | 役割 |
+|------|----------|--------|------|
+| eth0 | オンボード I219-V 1GbE | ETH-AP | LAN — AP (br0 メンバー) |
+| eth1 | X710-DA4 (SFP+ + RJ45) | ETH-WAN | WAN (PPPoE) → pppoe0 |
+| eth2 | X710-DA4 (SFP+ + RJ45) | ETH-PC | LAN — デスクトップ PC (br0) |
+| eth3 | X710-DA4 (SFP+) | — | 検証用トランジット (r3 直結時) |
+| eth4 | X710-DA4 (SFP+) | — | 未使用 |
+| wg0 | — | — | 会場 VPN + BGP |
+| wg1 | — | — | GCP (r2-gcp) |
 
 ### br0 (LAN ブリッジ)
 
-```
-set interfaces bridge br0 address 192.168.10.1/24
-set interfaces bridge br0 member interface eth0
-set interfaces bridge br0 member interface eth2
-```
-
-IX3315 の BVI1 と同等。家族用デバイスは AP (eth0) 経由の Wi-Fi またはデスクトップPC (eth2) の有線で接続する。
+br0 に 192.168.10.1/24 を付与し、eth0 (AP) + eth2 (PC) をメンバーに含める。IX3315 の BVI1 と同等。
 
 ## WAN (PPPoE)
 
-```
-set interfaces ethernet eth1 description 'WAN-OPTAGE'
-set interfaces pppoe pppoe0 source-interface eth1
-set interfaces pppoe pppoe0 authentication user 'hoge'
-set interfaces pppoe pppoe0 authentication password 'hoge'
-set interfaces pppoe pppoe0 ip adjust-mss clamp-mss-to-pmtu
-set interfaces pppoe pppoe0 ipv6 address autoconf
-set interfaces pppoe pppoe0 ipv6 adjust-mss clamp-mss-to-pmtu
-set interfaces pppoe pppoe0 dhcpv6-options pd 0 length 64
-```
-
-### DHCPv6-PD
-
-OPTAGE から DHCPv6-PD で /64 を取得する。**自宅 LAN (br0) は IPv4 only** とし、取得した /64 は丸ごと会場 (r3) に転送する。
-
-- br0 には IPv6 アドレスを割り当てない (RA も配信しない)
-- /64 は wg0 経由で会場へ static route (後述)
-- 会場側の r3 が RA を配信し、VLAN 30/40 で SLAAC を提供
+OPTAGE 回線を PPPoE で終端。`ip adjust-mss clamp-mss-to-pmtu` で MSS クランプ、`dhcpv6-options pd 0 length 64` で DHCPv6-PD を取得。
 
 ## DHCP サーバー (192.168.10.0/24)
 
-```
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 range 0 start 192.168.10.3
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 range 0 stop 192.168.10.199
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 default-router 192.168.10.1
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 dns-server 192.168.10.1
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 ntp-server 192.168.10.1
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 lease 86400
-
-# 固定割り当て
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 static-mapping device-3 ip-address 192.168.10.3
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 static-mapping device-3 mac 88:c2:55:2f:d5:14
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 static-mapping main-pc ip-address 192.168.10.4
-set service dhcp-server shared-network-name FAMILY subnet 192.168.10.0/24 static-mapping main-pc mac 9c:6b:00:04:ca:19
-# .9 (旧サーバー) は VyOS に置き換わったため固定割り当て廃止
-```
+家族用 LAN の DHCPv4。レンジ .3–.199、リース 86400s。デスクトップ PC (.4) は固定マッピング (wstunnel サーバー/iperf3 用)。
 
 ## DNS フォワーディング
 
-```
-set service dns forwarding listen-address 192.168.10.1
-set service dns forwarding listen-address 127.0.0.1
-set service dns forwarding allow-from 192.168.10.0/24
-set service dns forwarding allow-from 127.0.0.0/8
-set service dns forwarding allow-from 192.168.11.0/24
-set service dns forwarding allow-from 192.168.30.0/24
-set service dns forwarding allow-from 192.168.40.0/22
-set service dns forwarding cache-size 2048
-set service dns forwarding name-server 59.190.147.97
-set service dns forwarding name-server 59.190.146.145
-```
-
-OPTAGE ISP の DNS を明示指定。`system` オプションは `system name-server` の値も上流に含めるため、`127.0.0.1` を指定するとフォワーディングループが発生する。これを回避するため `system` を使わず `name-server` で直接指定する。
-
-ルーター自身の DNS 解決のため `127.0.0.1` でもリッスンし、`system name-server 127.0.0.1` で resolv.conf に反映する。
+OPTAGE ISP の DNS を `name-server` で明示指定。`system` オプションは `system name-server 127.0.0.1` との組み合わせでループするため使わない。ルーター自身の DNS 解決のため `127.0.0.1` でもリッスンする。
 
 ## NTP
 
-```
-set service ntp listen-address 192.168.10.1
-set service ntp server ntp.nict.jp
-set service ntp server ntp.jst.mfeed.ad.jp
-```
+VyOS 自身が NTP サーバーを提供 (旧 .9 サーバーが VyOS に置き換わったため)。DHCP option 42 は 192.168.10.1 を案内。
 
-IX3315 では NTP クライアントとして 192.168.10.9 を参照していたが、旧サーバーは VyOS に置き換わるため、VyOS 自身が NTP サーバーを提供する。DHCP option 42 は 192.168.10.1 (VyOS) を案内。
+### 起動順序の対策
 
-### 起動順序の問題と対策
+chrony が vyos-router.service より先に起動すると DNS forwarding 未起動で NTP ホスト名解決に失敗する (`sources with unknown address`)。`/config/scripts/vyos-postconfig-bootup.script` で全サービス起動後に `systemctl restart chrony` を実行する。
 
-chrony は vyos-router.service より先に起動する場合があり、その時点では DNS forwarding (pdns-recursor) が未起動のため NTP サーバーのホスト名解決に失敗する。`chronyc activity` で `sources with unknown address` と表示され、NTP 同期が行われない。
+## NAT
 
-対策として `/config/scripts/vyos-postconfig-bootup.script` で全サービス起動後に chrony を再起動する。
+### SNAT (マスカレード)
 
-```bash
-#!/bin/bash
-# /config/scripts/vyos-postconfig-bootup.script
-systemctl restart chrony
-```
+| rule | source | outbound | 用途 |
+|---|---|---|---|
+| 100 | 192.168.10.0/24 | pppoe0 | 家族 LAN |
+| 110-130 | 192.168.11/30/40 | pppoe0 | 会場サブネット |
+| 150 | 10.255.0.0/24 | pppoe0 | WG トンネルアドレス (r3 自身の発トラフィック) |
 
-## NAT (NAPT)
+### DNAT (DMZ: メインPC 192.168.10.4)
 
-### Source NAT (マスカレード)
+旧 .9 サーバーは VyOS に置き換わったため、wstunnel / iperf3 はメインPC (.4) で稼働。
 
-```
-set nat source rule 100 outbound-interface name pppoe0
-set nat source rule 100 source address 192.168.10.0/24
-set nat source rule 100 translation address masquerade
-```
+| rule | port | 転送先 | 用途 |
+|---|---|---|---|
+| 30 | TCP 443 | 192.168.10.4 | wstunnel サーバー |
+| 40 | TCP 5201 | 192.168.10.4 | iperf3 TCP |
+| 50 | UDP 5201 | 192.168.10.4 | iperf3 UDP |
 
-��場サブネット (192.168.11/30/40) のマ��カレードは全量設定の方に記載 (rule 110–130)。
-
-加えて、**WG トンネルアド���ス (10.255.0.0/24)** ��マスカレードも必要。r3 ルーター自身が発するトラフィック (DNS, NTP, ping 等) は BGP default で wg0 経由 r1 に届くが、source が 10.255.0.2 (wg0 アドレス) となり、他のルールでカバーされない。SNAT されないまま pppoe0 に出るとプライベート src IP のため ISP で drop される。
-
-```
-set nat source rule 150 outbound-interface name pppoe0
-set nat source rule 150 source address 10.255.0.0/24
-set nat source rule 150 translation address masquerade
-set nat source rule 150 description 'WG tunnel addresses masquerade'
-```
-
-### Destination NAT (ポートフォワーデ��ング → メインPC 192.168.10.4)
-
-旧サーバー (.9) は VyOS に置き換わったため、wstunnel / iperf3 はメインPC (.4) で稼働させる。
-SSH と WireGuard は VyOS 自身が終端するため DNAT 不要 (WAN-LOCAL で許可)。
-
-#### wstunnel サーバー (メインPC 192.168.10.4)
-
-自宅側は VPN の**受信側**であり、wstunnel サーバーを r1 配下のメインPC で稼働させる。会場側の wstunnel クライアント (r3 VyOS 上の podman コンテナ) が WSS (TCP 443) で接続し、WireGuard UDP パケットを WebSocket (TLS) で中継する。詳細は [`venue-proxmox.md`](venue-proxmox.md) を参照。
-
-- TCP 443 → 192.168.10.4 に DNAT (下記ルール 30)
-- ポート制限なしの場合は wstunnel 不使用 (WireGuard 直接接続)
-
-wstunnel サーバーの起動コマンド:
-
-```bash
-wstunnel server --restrict-to 192.168.10.1:51820 wss://[::]:443
-```
-
-`--restrict-to` により、トンネル先を r1 の WireGuard (192.168.10.1:51820) に限定する。wstunnel サーバーはメインPC で動作するため、r1 の LAN IP を指定する。
-
-```
-set nat destination rule 30 description 'wstunnel-HTTPS'
-set nat destination rule 30 inbound-interface name pppoe0
-set nat destination rule 30 protocol tcp
-set nat destination rule 30 destination port 443
-set nat destination rule 30 translation address 192.168.10.4
-
-set nat destination rule 40 description 'iperf3-tcp'
-set nat destination rule 40 inbound-interface name pppoe0
-set nat destination rule 40 protocol tcp
-set nat destination rule 40 destination port 5201
-set nat destination rule 40 translation address 192.168.10.4
-
-set nat destination rule 50 description 'iperf3-udp'
-set nat destination rule 50 inbound-interface name pppoe0
-set nat destination rule 50 protocol udp
-set nat destination rule 50 destination port 5201
-set nat destination rule 50 translation address 192.168.10.4
-```
+SSH と WireGuard は VyOS 自身が終端するため DNAT 不要。
 
 ### ヘアピン NAT
 
-IX3315 の `ip napt hairpinning` と同等。LAN 内から自宅のグローバル IP 宛にアクセスした場合、内部の DNAT 先に正しく転送されるようにする。
-
-```
-set nat destination rule 110 description 'Hairpin-wstunnel-HTTPS'
-set nat destination rule 110 inbound-interface name br0
-set nat destination rule 110 protocol tcp
-set nat destination rule 110 destination port 443
-set nat destination rule 110 destination address <pppoe0-address>
-set nat destination rule 110 translation address 192.168.10.4
-
-set nat source rule 110 outbound-interface name br0
-set nat source rule 110 source address 192.168.10.0/24
-set nat source rule 110 destination address 192.168.10.4
-set nat source rule 110 translation address masquerade
-
-# 他のヘアピンルールも同様のパターンで追加
-# PPPoE アドレスが動的なため、ヘアピン NAT は必要に応じて設定
-# または DNS で内部アドレスを返す split-horizon で回避
-```
+LAN 内から自宅グローバル IP 宛のアクセスも内部 DNAT 先に届くよう追加ルール (rule 110)。pppoe0 アドレスは動的のため、必要に応じて DNS split-horizon で代替も可。
 
 ## Conntrack イベントログ (NAPT 変換記録)
 
-法執行機関からの照会対応として、masquerade による NAPT 変換のマッピングを conntrack イベントとして記録する。詳細は [`logging-compliance.md`](logging-compliance.md) を参照。
+法執行対応として、masquerade の NAPT 変換マッピングを記録する。`conntrack -E` で NEW/DESTROY を syslog (facility local2, tag `conntrack-nat`) に出力。対象は会場サブネットのみ、家族 LAN は除外。
 
-### なぜ必要か
-
-会場側の NetFlow は NAT 前のクライアント IP を記録するが、法執行機関からの照会は「グローバル IP X.X.X.X のポート Y から Z 時刻に通信があった」という形式。masquerade の変換テーブル (内部 IP:port ↔ グローバル IP:port) を記録しないと、この紐付けができない。
-
-### conntrack イベントロガー
-
-`conntrack -E` で NEW/DESTROY イベントをリアルタイムに syslog へ出力する。対象は会場サブネットのみ (家族用 LAN 192.168.10.0/24 は除外)。
-
-#### スクリプト (`/config/scripts/conntrack-logger.sh`)
-
-```bash
-#!/bin/bash
-# Conntrack イベントログ: 会場サブネットの NAPT 変換マッピングを syslog に記録
-# 対象: 192.168.11.0/24 (mgmt), 192.168.30.0/24 (staff), 192.168.40.0/22 (user)
-# 除外: 192.168.10.0/24 (家族用 LAN)
-conntrack -E -e NEW,DESTROY -o timestamp 2>/dev/null | \
-    grep --line-buffered -E 'src=(192\.168\.(11|30|4[0-3])\.)' | \
-    logger -t conntrack-nat -p local2.info
-```
-
-#### systemd サービス (`/etc/systemd/system/conntrack-logger.service`)
-
-```ini
-[Unit]
-Description=Conntrack NAT Translation Logger
-After=network.target
-
-[Service]
-ExecStart=/config/scripts/conntrack-logger.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-#### 有効化
-
-```bash
-chmod +x /config/scripts/conntrack-logger.sh
-systemctl daemon-reload
-systemctl enable --now conntrack-logger.service
-```
-
-### 出力例
-
-```
-[1723286400.123456]    [NEW] tcp      6 120 SYN_SENT src=192.168.40.123 dst=93.184.216.34 sport=54321 dport=443 [UNREPLIED] src=93.184.216.34 dst=<pppoe0-ip> sport=443 dport=12345
-[1723286460.789012] [DESTROY] tcp      6 src=192.168.40.123 dst=93.184.216.34 sport=54321 dport=443 src=93.184.216.34 dst=<pppoe0-ip> sport=443 dport=12345
-```
-
-読み方:
-- original tuple: `src=192.168.40.123 sport=54321` → 内部クライアント
-- reply tuple: `dst=<pppoe0-ip> dport=12345` → NAT 後のグローバル IP:ポート
-- NEW → セッション確立、DESTROY → セッション終了
-
-### syslog 転送 (r1 → Local Server)
-
-conntrack ログを WireGuard 経由で会場の Local Server (192.168.11.2) に転送し、既存のログパイプラインに合流させる。
-
-```
-set system syslog host 192.168.11.2 facility local2 level info
-```
+ログ設計の全体像は [`logging-compliance.md`](logging-compliance.md) §4 を参照。
 
 ## ファイアウォール
 
-### WAN → ローカル (pppoe0 inbound)
+### WAN → LOCAL (pppoe0 inbound)
 
-```
-set firewall ipv4 name WAN-LOCAL default-action drop
+default-action drop。許可項目:
+- established/related
+- ICMP
+- SSH (22) — ed25519 鍵認証のみ
+- WireGuard (UDP 51820) — venue 向け
 
-set firewall ipv4 name WAN-LOCAL rule 10 action accept
-set firewall ipv4 name WAN-LOCAL rule 10 state established
-set firewall ipv4 name WAN-LOCAL rule 10 state related
+### WAN → LAN (forward)
 
-set firewall ipv4 name WAN-LOCAL rule 20 action accept
-set firewall ipv4 name WAN-LOCAL rule 20 protocol icmp
+default-action drop。established/related + メインPC (.4) の TCP 80/443/5201、UDP 5201 のみ許可。
 
-set firewall ipv4 name WAN-LOCAL rule 30 action accept
-set firewall ipv4 name WAN-LOCAL rule 30 protocol tcp
-set firewall ipv4 name WAN-LOCAL rule 30 destination port 22
-set firewall ipv4 name WAN-LOCAL rule 30 description 'SSH (ed25519 only — see service ssh)'
+### IPv6 WAN → LOCAL
 
-set firewall ipv4 name WAN-LOCAL rule 40 action accept
-set firewall ipv4 name WAN-LOCAL rule 40 protocol udp
-set firewall ipv4 name WAN-LOCAL rule 40 destination port 51820
-set firewall ipv4 name WAN-LOCAL rule 40 description 'WireGuard from venue'
-
-set firewall ipv4 input filter default-action accept
-set firewall ipv4 input filter rule 10 action jump
-set firewall ipv4 input filter rule 10 jump-target WAN-LOCAL
-set firewall ipv4 input filter rule 10 inbound-interface name pppoe0
-```
-
-### WAN → LAN (フォワード)
-
-```
-set firewall ipv4 name WAN-LAN default-action drop
-
-set firewall ipv4 name WAN-LAN rule 10 action accept
-set firewall ipv4 name WAN-LAN rule 10 state established
-set firewall ipv4 name WAN-LAN rule 10 state related
-
-set firewall ipv4 name WAN-LAN rule 20 action accept
-set firewall ipv4 name WAN-LAN rule 20 state new
-set firewall ipv4 name WAN-LAN rule 20 destination address 192.168.10.4
-set firewall ipv4 name WAN-LAN rule 20 protocol tcp
-set firewall ipv4 name WAN-LAN rule 20 destination port 80,443,5201
-
-set firewall ipv4 name WAN-LAN rule 30 action accept
-set firewall ipv4 name WAN-LAN rule 30 state new
-set firewall ipv4 name WAN-LAN rule 30 destination address 192.168.10.4
-set firewall ipv4 name WAN-LAN rule 30 protocol udp
-set firewall ipv4 name WAN-LAN rule 30 destination port 5201
-```
-
-### IPv6 ファイアウォール
-
-```
-set firewall ipv6 name WANv6-LOCAL default-action drop
-
-set firewall ipv6 name WANv6-LOCAL rule 10 action accept
-set firewall ipv6 name WANv6-LOCAL rule 10 state established
-set firewall ipv6 name WANv6-LOCAL rule 10 state related
-
-set firewall ipv6 name WANv6-LOCAL rule 20 action accept
-set firewall ipv6 name WANv6-LOCAL rule 20 protocol icmpv6
-
-set firewall ipv6 name WANv6-LOCAL rule 30 action accept
-set firewall ipv6 name WANv6-LOCAL rule 30 protocol udp
-set firewall ipv6 name WANv6-LOCAL rule 30 source port 547
-set firewall ipv6 name WANv6-LOCAL rule 30 destination port 546
-set firewall ipv6 name WANv6-LOCAL rule 30 description 'DHCPv6 replies'
-```
+established/related、ICMPv6、DHCPv6 replies (UDP 546 from 547)。
 
 ## IPv6 設計
 
-自宅 LAN (br0) では IPv6 を使用しない。IX3315 では RA + DHCPv6 サーバーを LAN に提供していたが、VyOS では廃止する。
+自宅 LAN (br0) では IPv6 を使用しない。
 
-理由: OPTAGE の DHCPv6-PD は /64 のみ。/64 は SLAAC の最小単位であり分割不可能なため、自宅と会場で共有できない。イベント参加者への IPv6 提供を優先し、/64 は全て会場に割り当てる。
+**理由**: OPTAGE DHCPv6-PD は /64 のみ。/64 は SLAAC の最小単位で分割不可のため、自宅と会場で共有できない。イベント参加者への IPv6 提供を優先し、/64 は全量会場に割り当てる。家族用デバイスは IPv4 のみで運用 (現状問題なし)。
 
-自宅の家族用デバイスは IPv4 のみで運用する (現状でも IPv4 で十分機能しており、実質的な影響なし)。
+## WireGuard
 
-## WireGuard (会場 VPN)
+### wg0 (会場 r3 向け, プライマリ)
 
-```
-set interfaces wireguard wg0 address 10.255.0.1/30
-set interfaces wireguard wg0 port 51820
-set interfaces wireguard wg0 private-key <r1-private-key>
-set interfaces wireguard wg0 mtu 1400
-
-set interfaces wireguard wg0 peer venue public-key <r3-public-key>
-set interfaces wireguard wg0 peer venue allowed-ips 10.255.0.2/32
-set interfaces wireguard wg0 peer venue allowed-ips 192.168.11.0/24
-set interfaces wireguard wg0 peer venue allowed-ips 192.168.30.0/24
-set interfaces wireguard wg0 peer venue allowed-ips 192.168.40.0/22
-
-set firewall options interface wg0 adjust-mss clamp-mss-to-pmtu
-```
-
-### WireGuard アドレス設計
-
-| トンネル | ローカル | リモート | 用途 |
-|---------|---------|---------|------|
-| wg0 | 10.255.0.1/30 | r3 (10.255.0.2) | 会場直接 (優先) |
-| wg1 | 10.255.1.1/30 | r2-gcp (10.255.1.2) | GCP トランジット |
+10.255.0.1/30、listen 51820、MTU 1400。`allowed-ips` は venue (10.255.0.2/32 + 会場サブネット 192.168.11/30/40)。MSS clamp 有効。
 
 ### wg1 (GCP r2-gcp 向け)
 
-```
-set interfaces wireguard wg1 address 10.255.1.1/30
-set interfaces wireguard wg1 port 51821
-set interfaces wireguard wg1 private-key <r1-private-key>
-set interfaces wireguard wg1 mtu 1400
+10.255.1.1/30、listen 51821、MTU 1400。`allowed-ips` には r2-gcp P2P (10.255.1.2/32) + r3 P2P (10.255.2.0/30) + 会場サブネット + **goog.json v4 全 94 本**。goog.json 更新時に allowed-ips も連動更新が必要 ([`../operations/goog-prefix-update.md`](../operations/goog-prefix-update.md) 参照)。
 
-set interfaces wireguard wg1 peer r2-gcp public-key <r2-public-key>
-set interfaces wireguard wg1 peer r2-gcp address 34.97.197.104
-set interfaces wireguard wg1 peer r2-gcp port 51820
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 10.255.1.2/32
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 10.255.2.0/30
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 192.168.11.0/24
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 192.168.30.0/24
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 192.168.40.0/22
-# goog.json IPv4 プレフィックス (96 本) を allowed-ips に追加
-# → WG の crypto routing で Google 宛パケットを r2-gcp に送信可能にする
-# ※ goog.json 更新時に allowed-ips も連動更新が必要
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 8.8.8.0/24
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 34.64.0.0/10
-# ... (goog.json v4 全 96 本)
-set interfaces wireguard wg1 peer r2-gcp persistent-keepalive 25
-
-set firewall options interface wg1 adjust-mss clamp-mss-to-pmtu
-```
-
-> **注**: r2-gcp peer に会場プレフィックスを許可しているのは、r1↔r3 直結断時に r2-gcp 経由で会場トラフィックを迂回受信するため。goog.json プレフィックスを追加することで、Google 宛トラフィックを GCP (r2-gcp) 経由で直接送信できる。goog.json の更新時には allowed-ips も連動して更新する必要がある。
+r2-gcp peer に会場プレフィックスを許可するのは、r1↔r3 直結断時に r2-gcp 経由で会場トラフィックを迂回受信するため。
 
 ## BGP (AS65002)
 
 ### ピアリング
 
-| ピア | アドレス | AS | インターフェース | 用途 |
-|------|---------|-----|-----------------|------|
-| r3-venue | 10.255.0.2 | 65001 | wg0 | 会場との直接接続 |
-| r2-gcp | 10.255.1.2 | 64512 | wg1 | GCP トランジット |
+| ピア | AS | IF | 用途 |
+|------|-----|-----|------|
+| r3-venue (10.255.0.2) | 65001 | wg0 | 会場 |
+| r2-gcp (10.255.1.2) | 64512 | wg1 | GCP トランジット |
 
-### 経路優先度制御
+### default-originate
 
-WireGuard 直接リンクを優先し、r2-gcp 経由をフォールバックにする。ただし r2-gcp が広告する Google プレフィックス (goog.json 由来) は r2-gcp 直接を優先する (LP=250)。default route のみ LP=50 を維持。
+r1-home は venue-r3 / r2-gcp 両方に `0.0.0.0/0` / `::/0` を BGP で広告する。r3 側はこれを AD=20 で受信し、DHCP 由来の default (AD=210) より優先される。これにより venue のユーザートラフィックが wg0 経由で r1 に到達し、pppoe0 から Internet へ抜ける。
 
-```
-set protocols bgp system-as 65002
+### 経路優先度
 
-# --- r3 (WireGuard 直接) ---
-set protocols bgp neighbor 10.255.0.2 remote-as 65001
-set protocols bgp neighbor 10.255.0.2 description 'venue-r3'
-set protocols bgp neighbor 10.255.0.2 address-family ipv4-unicast
-set protocols bgp neighbor 10.255.0.2 address-family ipv4-unicast route-map import WG-IN
-# r3 (venue) に default route を広告 (venue ユーザートラフィックを自宅 pppoe0 経由で抜くため)
-set protocols bgp neighbor 10.255.0.2 address-family ipv4-unicast default-originate
-
-# --- r2-gcp (GCP トランジット) ---
-set protocols bgp neighbor 10.255.1.2 remote-as 64512
-set protocols bgp neighbor 10.255.1.2 description 'r2-gcp'
-set protocols bgp neighbor 10.255.1.2 address-family ipv4-unicast
-set protocols bgp neighbor 10.255.1.2 address-family ipv4-unicast route-map import GCP-IN
-# r2 へ default-originate (r2 をトランジットルーターにする)
-set protocols bgp neighbor 10.255.1.2 address-family ipv4-unicast default-originate
-set protocols bgp neighbor 10.255.1.2 address-family ipv6-unicast default-originate
-set protocols bgp neighbor 10.255.1.2 address-family ipv6-unicast route-map import GCP-IN
-
-# --- ネットワーク広告 ---
-set protocols bgp address-family ipv4-unicast network 192.168.10.0/24
-
-# --- Route Map ---
-
-# WireGuard 直接: local-pref 200 (優先)
-set policy route-map WG-IN rule 10 action permit
-set policy route-map WG-IN rule 10 set local-preference 250
-
-# GCP 経由: default route のみ LP=50 (フォールバック)、Google プレフィックスは LP=250 (r2-gcp 直接優先)
-set policy prefix-list DEFAULT-ONLY rule 10 action permit
-set policy prefix-list DEFAULT-ONLY rule 10 prefix 0.0.0.0/0
-set policy prefix-list6 DEFAULT6-ONLY rule 10 action permit
-set policy prefix-list6 DEFAULT6-ONLY rule 10 prefix ::/0
-
-set policy route-map GCP-IN rule 10 action permit
-set policy route-map GCP-IN rule 10 match ip address prefix-list DEFAULT-ONLY
-set policy route-map GCP-IN rule 10 set local-preference 50
-set policy route-map GCP-IN rule 15 action permit
-set policy route-map GCP-IN rule 15 match ipv6 address prefix-list DEFAULT6-ONLY
-set policy route-map GCP-IN rule 15 set local-preference 50
-set policy route-map GCP-IN rule 20 action permit
-set policy route-map GCP-IN rule 20 set local-preference 250
-```
-
-WireGuard (wg0) ダウン時は r3 との BGP セッションも落ち、local-pref 200 の経路が消失。自動的に r2-gcp 経由 (local-pref 50) にフォールバックする。Google 宛トラフィックは r2-gcp 直接 (LP=250) で、r3 を経由しない。
-
-### default-originate について
-
-`default-originate` により r1-home は venue-r3 に対して BGP で `0.0.0.0/0` を広告する。r3 側はこれを AD=20 でカーネルに投入し、DHCP 由来の default route (AD=210) より優先される。これによって venue のユーザートラフィックが wg0 経由で r1-home に到達し、pppoe0 から Internet へ抜ける設計が成立する。
-
-**注意点 (r3 側のループ防止)**: r3 の wg0 peer endpoint は r1-home の公開 IP (pppoe0 アドレス) であり、`allowed-ips 0.0.0.0/0` を設定しているため、r3 に BGP default が刺さった瞬間に WG 外殻パケット (outer dst = r1 公開 IP) まで wg0 に吸われてループする危険がある。対策は r3 側の [venue-vyos.md](venue-vyos.md) 参照 (tracker スクリプトで `/32` escape route を kernel 直叩きで管理)。
-
-**r1 側の静的経路クリーンアップ**: default-originate 投入と同時に、旧設計の残骸である以下の static route は削除済み。残っていると BGP (AD=20) より static (AD=1) が優先され、venue 戻りが wg1 (GCP) に誤配送されて `host unreachable` を吐く。
-
-```
-# 削除済み (旧 GCP 経由 venue 到達想定の残骸)
-# set protocols static route 192.168.11.0/24
-# set protocols static route 192.168.30.0/24 next-hop 10.255.1.2
-# set protocols static route 192.168.40.0/22 next-hop 10.255.1.2
-```
+WireGuard 直接リンク (r3) を優先し、r2-gcp 経由をフォールバック。
+- r3 経由 (WG-IN): LP=250
+- r2-gcp 経由 default: LP=50
+- r2-gcp 経由 Google プレフィックス (goog.json): LP=250 (r2-gcp 直接優先)
 
 ### r2-gcp endpoint の escape route
 
-goog.json BGP 広告により `34.64.0.0/10` 等が wg1 経由になるが、WG 外側パケット (`dst=34.97.197.104`) は pppoe0 から出す必要がある。goog.json プレフィックスの中に r2-gcp の公開 IP が含まれるため、`/32` の static route で pppoe0 に escape させる。
+goog.json BGP 広告により `34.64.0.0/10` 等が wg1 経由になるが、WG 外側パケット (`dst=34.97.197.104`) は pppoe0 から出す必要がある。`34.97.197.104/32 interface pppoe0` を静的経路として設定 ([`../operations/goog-prefix-update.md`](../operations/goog-prefix-update.md) 参照)。
 
-```
-# r2-gcp endpoint の escape route
-# goog.json BGP 広告により 34.64.0.0/10 等が wg1 経由になるが、
-# WG 外側パケット (dst=34.97.197.104) は pppoe0 から出す必要がある
-set protocols static route 34.97.197.104/32 interface pppoe0
-```
+### 静的経路のクリーンアップ
+
+default-originate 投入と同時に、旧設計の残骸 (`route 192.168.11.0/24` 等の next-hop 10.255.1.2) は削除済み。残っていると BGP (AD=20) より static (AD=1) が優先され venue 戻りが wg1 に誤配送される。
 
 ## IPv6 プレフィックス委任 (会場向け)
 
-OPTAGE から取得した DHCPv6-PD /64 を丸ごと会場 (r3) に転送する。自宅 LAN には割り当てない。
+OPTAGE から DHCPv6-PD /64 を取得し、**丸ごと会場 (r3) に転送**する。自宅 LAN には割り当てない。
 
-### 方式: VyOS dhcpv6-options pd でダミーインターフェースに割り当て + 自動転送スクリプト
+### 方式: ダミー IF + 自動追従スクリプト
 
 ```
-# DHCPv6-PD で /64 を取得し、ダミーインターフェースに割り当て
 set interfaces dummy dum0
 set interfaces pppoe pppoe0 dhcpv6-options pd 0 interface dum0 sla-id 0
-
-# 自動転送スクリプトを 1 分間隔で実行
-set system task-scheduler task pd-update interval 1m
-set system task-scheduler task pd-update executable path /config/scripts/pd-update-venue.sh
 ```
 
 ### プレフィックス変更自動追従 (`pd-update-venue.sh`)
 
-DHCPv6-PD のプレフィックスは PPPoE 再接続や ISP 側メンテナンスで変わる可能性がある。VyOS の DHCPv6 クライアント (wide-dhcpv6 / dhcp6c) はスクリプトにプレフィックス情報を渡さないため、dhclient hook 方式は使えない。代わりに **task-scheduler (cron) で 1 分間隔監視** する。
+DHCPv6-PD のプレフィックスは PPPoE 再接続や ISP メンテナンスで変わる可能性がある。VyOS DHCPv6 クライアントはスクリプトにプレフィックス情報を渡さないため、dhclient hook 方式は使えない。**task-scheduler (cron) で 1 分間隔監視**する。
 
-**スクリプト**: [`scripts/pd-update-venue.sh`](../../scripts/pd-update-venue.sh)
-**配置先**: `/config/scripts/pd-update-venue.sh` (r1)
+- スクリプト: [`../../scripts/pd-update-venue.sh`](../../scripts/pd-update-venue.sh)
+- 配置: `/config/scripts/pd-update-venue.sh` (r1)
 
-動作フロー:
+動作:
+1. dum0 の IPv6 グローバルアドレスから現在の /64 を取得
+2. 前回値と比較 (`/tmp/pd_current_prefix`)
+3. 変更あり → r1 の IPv6 ルートを wg0 経由に更新、r3 VyOS API で v6 設定を全更新
+4. 変更なし → wg0 ルートの存在を確認 (自己修復)
 
-1. dum0 の IPv6 グローバルアドレスから現在の /64 プレフィックスを取得
-2. `/tmp/pd_current_prefix` に保存した前回のプレフィックスと比較
-3. **変更あり**: r1 の IPv6 ルートを wg0 経由に更新 → r3 の VyOS API で IPv6 設定を全更新
-4. **変更なし**: wg0 ルートが消えていないか確認し、消えていれば再追加 (自己修復)
+制約: プレフィックス変更から r3 反映まで最大 1 分のラグ。`/tmp/pd_current_prefix` は再起動で消えるため、起動後の初回はフル更新が走る。
 
-r3 への更新内容:
-
-- `interfaces ethernet eth2 vif 30/40 address` — IPv6 アドレス
-- `service router-advert` — RA プレフィックス、RDNSS
-- `service dhcpv6-server` — DHCPv6 アドレスレンジ
-
-**制約**:
-
-- プレフィックス変更から r3 反映まで最大 1 分のラグがある (IPv4 は影響なし)
-- SLAAC クライアントは新プレフィックスの RA 受信後に新アドレスを取得する (旧アドレスは preferred-lifetime 満了まで残る)
-- `/tmp/pd_current_prefix` は再起動で消えるため、起動後の初回実行時は必ずフル更新が走る
-
-### 会場側 (r3) の RA 配信
-
-r3 が受け取った /64 を VLAN 30/40 で RA 広告する。r1 側では RA を配信しない。r3 の IPv6 設定は `pd-update-venue.sh` が自動投入するため手動設定は不要。
-
-```
-# r3 側 (pd-update-venue.sh が投入する設定の例)
-set interfaces ethernet eth2 vif 30 address 2001:ce8:180:5a79::1/64
-set interfaces ethernet eth2 vif 40 address 2001:ce8:180:5a79::2/64
-set service router-advert interface eth2.30 prefix 2001:ce8:180:5a79::/64
-set service router-advert interface eth2.40 prefix 2001:ce8:180:5a79::/64
-```
+会場側 r3 は受け取った /64 を VLAN 30/40 で RA 広告する。r1 側では RA を配信しない。
 
 ## HTTPS API
 
-```
-set service https api keys id mykey key 'BwAI'
-set service https api rest strict
-set service https listen-address 192.168.10.1
-```
+r1 の設定 API。管理 PC から `scripts/r1-config.py` (curl ベース) で設定投入する。
 
-管理 PC (eth0: 192.168.100.0/24) から VyOS 設定 API にアクセスするために使用。`scripts/r1-config.py` から curl で設定を投入する。
-
-> ⚠️ **`listen-address` の明示は必須**: デフォルトでは `service https` は全インターフェース (pppoe0 WAN 含む) で 443 を listen する。`nat destination rule 30` で `pppoe0:443 → 192.168.10.4` の DNAT を設定しているため **本来の WAN 経由トラフィックは PREROUTING で先に DNAT されて wstunnel server に届く**ので機能面の実害はないが、以下 2 点の問題があるため LAN 側 IP に限定する。
->
-> 1. **LAN 内から自宅グローバル IP でアクセスしたときに r1 の nginx (API フロント) が応答してしまう**: ヘアピン NAT は別ルールで ip 向けに指定しない限り効かず、r1 自身の pppoe0 IP 宛パケットは INPUT に落ちて nginx (403/404) が返る。LAN 内動作確認やヘアピン前提の運用で想定外の応答になる
-> 2. **API の WAN 露出はセキュリティリスク**: `https://<WAN-IP>/retrieve` に API キーのブルートフォースが可能になってしまう
+**`listen-address 192.168.10.1` の明示は必須**: デフォルトでは全 IF (pppoe0 WAN 含む) で 443 listen する。pppoe0:443 は DNAT ルール 30 でメインPC に転送されるため実害は薄いが、(1) LAN 内から自宅グローバル IP でアクセスした際に r1 nginx が応答してしまう、(2) API の WAN 露出でブルートフォース可能、の 2 点のリスクがあるため LAN 側 IP に限定する。
 
 ## SSH
 
-```
-set service ssh port 22
-set service ssh disable-password-authentication
-set service ssh hostkey-algorithm ssh-ed25519
-```
+WAN にも公開するため ed25519 鍵認証のみ (`disable-password-authentication`)。listen-address を指定せず全 IF で受け付ける (WAN-LOCAL ファイアウォールで WAN 側も許可済み)。
 
-WAN にも公開するため、ed25519 鍵認証のみに制限しパスワード認証を無効化する。listen-address を指定しないことで全インターフェースで受け付ける (WAN-LOCAL ファイアウォールで WAN 側も許可済み)。
+登録済み公開鍵の管理は [`../configs/r1-home.conf`](../configs/r1-home.conf) 参照 (authorized_keys 一覧あり)。
 
-### 登録済み公開鍵 (authorized_keys)
+## wg-r1-tracker と r2-gcp endpoint 管理
 
-ユーザー `vyos` に登録されている SSH 公開鍵一覧:
+r1 の動的 WAN IP 追従および r2-gcp endpoint の wg0 経由 double encapsulation 管理の責務は r3 側のスクリプトが持つ。r1 自身は安定したエンドポイントとして動作する。詳細は [`venue-vyos.md`](venue-vyos.md) §6 を参照。
 
-| キー名 | 種別 | 公開鍵 |
-|--------|------|--------|
-| `admin-P14sGen4` | ssh-ed25519 | `AAAAC3NzaC1lZDI1NTE5AAAAIB+qVyw/Zek2Mw81dOqJKHQKsG9bnZuFsJdsRWakenyj` |
-| `admin@DESKTOP-NKBDQ7N` | ssh-ed25519 | `AAAAC3NzaC1lZDI1NTE5AAAAICE+Sh+BGa5emrjg2WLm+KYxQZGUPcIoSSKVE8Fsrm16` |
-| `yuuki@uyuki234` | ssh-ed25519 | `AAAAC3NzaC1lZDI1NTE5AAAAILpwyh8IbeX+/UG8hSxKJSZSYUG21hBvUIxQoyI0AJuk` |
-| `uenohiroya@MacBook-Pro` | ssh-ed25519 | `AAAAC3NzaC1lZDI1NTE5AAAAILFoalIDw9/h9PPlB52T7j9jokmbT/F5iHQ/2O8frfYT` |
-| `GDG_Kwansai_2026_1` | ssh-ed25519 | `AAAAC3NzaC1lZDI1NTE5AAAAIK7+w42OTq5owt5qJ5AnvC5zUiGKjus7wFyI9kt97KAR` |
-| `GDG_Kwansai_2026_2` | ssh-ed25519 | `AAAAC3NzaC1lZDI1NTE5AAAAIDo0nQBmij/qT7E/Nuz9CNy41LZW6vzUl4vFSktH6R4d` |
+## 関連ドキュメント
 
-```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+qVyw/Zek2Mw81dOqJKHQKsG9bnZuFsJdsRWakenyj admin-P14sGen4
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICE+Sh+BGa5emrjg2WLm+KYxQZGUPcIoSSKVE8Fsrm16 admin@DESKTOP-NKBDQ7N
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILpwyh8IbeX+/UG8hSxKJSZSYUG21hBvUIxQoyI0AJuk yuuki@uyuki234
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILFoalIDw9/h9PPlB52T7j9jokmbT/F5iHQ/2O8frfYT uenohiroya@MacBook-Pro
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK7+w42OTq5owt5qJ5AnvC5zUiGKjus7wFyI9kt97KAR GDG_Kwansai_2026_1
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDo0nQBmij/qT7E/Nuz9CNy41LZW6vzUl4vFSktH6R4d GDG_Kwansai_2026_2
-```
-
-## 設定一覧 (フルコンフィグ)
-
-投入用の VyOS CLI コマンド集は [`../configs/r1-home.conf`](../configs/r1-home.conf) を参照。本設計書の各セクションに記載した snippet と完全に同期している。
+- [`../configs/r1-home.conf`](../configs/r1-home.conf) — 投入用 VyOS CLI コマンド集 (authorized_keys 含む)
+- [`../operations/goog-prefix-update.md`](../operations/goog-prefix-update.md) — goog.json + allowed-ips 連動更新
+- [`../operations/nic2-wan-switchover.md`](../operations/nic2-wan-switchover.md) — wstunnel server 運用
+- [`../investigation/ix3315-migration.md`](../investigation/ix3315-migration.md) — 旧ルーターからの移行記録
 
 ## 注意事項
 
-- PPPoE 認証情報はこのドキュメントに記載しているが、本番では secret 管理を検討すること
-- `<r1-private-key>`, `<r3-public-key>` は WireGuard 鍵生成後に差し替え
-- OPTAGE の DHCPv6-PD は /64 のみ。自宅 LAN は IPv4 only とし、/64 は会場に全量転送する
-- VyOS のバージョンは 2026.03 (Circinus, rolling release) を使用
+- PPPoE 認証情報は本番では secret 管理を検討
+- WireGuard 鍵は生成後に差し替え
+- OPTAGE DHCPv6-PD は /64 のみ → 自宅 LAN は IPv4 only、/64 は会場に全量転送
+- VyOS は 2026.03 (Circinus, rolling release)
