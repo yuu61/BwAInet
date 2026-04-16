@@ -1,0 +1,23 @@
+[Unit]
+Description=NetFlow v9 collector (BwAI forensic)
+After=network.target
+
+[Service]
+Type=simple
+User=nfcapd
+Group=adm
+UMask=0027
+ExecStart=/usr/bin/nfcapd -T all -t 300 -l /mnt/data/nfcapd -p 2055 -e
+Restart=on-failure
+RestartSec=5
+
+ProtectSystem=strict
+ReadWritePaths=/mnt/data/nfcapd
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

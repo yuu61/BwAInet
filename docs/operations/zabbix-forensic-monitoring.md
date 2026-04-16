@@ -128,10 +128,10 @@ ssh root@192.168.11.2 /usr/local/sbin/gcs-forensic-push.sh
 
 ## Zabbix トリガー追加・変更
 
-冪等スクリプト: `scripts/zabbix-setup-forensic.py`
+冪等スクリプト: `scripts/ops/zabbix-setup-forensic.py`
 
 ```bash
-python scripts/zabbix-setup-forensic.py
+python scripts/ops/zabbix-setup-forensic.py
 ```
 
 既存テンプレート/アイテム/トリガーは重複作成されない (存在確認ロジック内蔵)。

@@ -160,7 +160,7 @@ r2-gcp でも NAT 変換マッピングを記録する。`conntrack -E` で v4 N
 - programname `conntrack-nat` (v4 NEW/DESTROY)、programname `conntrack-nat6` (v6 NEW/DESTROY)
 - facility local2、送信先は local-server (192.168.11.2:514 TCP) — wg1 経由で到達
 - 実装: `/etc/systemd/system/conntrack-logger.service` + `/usr/local/sbin/r2-conntrack-logger.sh`
-- リポジトリ内: `scripts/r2-conntrack-logger.sh`、`scripts/vyos-conntrack-logger.service`
+- リポジトリ内: `scripts/r2-gcp/conntrack-logger.sh`、`scripts/vyos-common/conntrack-logger.service`
 
 全体設計は [`logging-compliance.md`](logging-compliance.md) §4 参照。
 
