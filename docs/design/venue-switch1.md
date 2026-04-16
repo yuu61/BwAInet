@@ -1,6 +1,6 @@
 # 会場スイッチ sw01 (FS) 実装例
 
-> **前提**: 本ドキュメントは [`venue-switch.md`](./venue-switch.md) で定義したマルチベンダー共通設計 (VLAN モデル、ポート種別 T1〜T5、管理 IP ルール、STP 方針) の **FS 製スイッチ (Cisco-like CLI) による実装例** である。共通設計を先に読むこと。
+> **前提**: 本ドキュメントは [`venue-switch.md`](./venue-switch.md) で定義したマルチベンダー共通設計 (VLAN モデル、ポート種別 T1〜T5、管理 IP ルール) の **FS 製スイッチ (Cisco-like CLI) による実装例** である。共通設計を先に読むこと。
 
 ## 概要
 
@@ -66,19 +66,16 @@ r1-home / r3-vyos はいずれも Proxmox 内 VM のため、デフォルト GW 
 - **XSGe 0/1–0/2 をスイッチ間接続に使用**: 10G fiber (SFP+) で sw02 等の他スイッチとの ISL (Inter-Switch Link) に使用
 - **5Ge 0/1 に mGig 対応 AP を収容**: Aironet 3800 は mGig 対応のため 5Ge で 2.5G/5G リンクが可能。帯域が集中する AP を 5Ge に接続し、制御プレーンのみの WLC は Ge 0/8 に配置
 - **5Ge 0/2 に Proxmox を収容**: r1-home / r3-vyos は Proxmox 内の VM。1GbE ネゴで接続
-- **STP priority 4096**: sw01 を MST instance 0 のプライマリルートブリッジに指定 (sw02 は 8192 でセカンダリ)。MSTP (IEEE 802.1s) を使用し、全 VLAN を IST に収容
-- **BPDU guard を AP/端末ポートに**: portfast 系ポートで BPDU を受信したら即座に errdisable 化、誤接続による L2 ループを防止
 
 ## IPv6 マルチキャスト対策の実機確認事項
 
 - [ ] `show ipv6 mld-snooping` で MLD Snooping が有効であることを確認
 - [ ] `show ipv6 mld-snooping groups` で VLAN 30/40 のグループ数を確認 (L2MC テーブル容量との比較)
-- [ ] `ipv6 nd raguard` コマンドの対応可否を実機で確認 — 対応していれば IPv6 ACL から切り替え
-- [ ] RA Guard (ACL) 適用後、端末で `ipconfig /all` (Windows) または `ip -6 addr` (Linux) で SLAAC アドレスが正常に取得できることを確認
+- [ ] 端末で `ipconfig /all` (Windows) または `ip -6 addr` (Linux) で SLAAC アドレスが正常に取得できることを確認
 
 ## 関連ドキュメント
 
-- [`venue-switch.md`](./venue-switch.md) — 会場スイッチ共通設計 (マルチベンダー) — §7 に IPv6 マルチキャスト対策の共通ルール
+- [`venue-switch.md`](./venue-switch.md) — 会場スイッチ共通設計 (マルチベンダー) — §6 に IPv6 マルチキャスト対策の共通ルール
 - [`venue-switch2.md`](./venue-switch2.md) — sw02 (Cisco ISR 1100) 実装例
 - [`mgmt-vlan-address.md`](./mgmt-vlan-address.md) — 管理 VLAN アドレス割当表
 - [`venue-proxmox.md`](./venue-proxmox.md) — Proxmox 側の VLAN-aware ブリッジ設計

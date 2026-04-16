@@ -107,11 +107,11 @@ established/related、ICMPv6、DHCPv6 replies (UDP 546 from 547)。
 
 ### wg0 (会場 r3 向け, プライマリ)
 
-10.255.0.1/30、listen 51820、MTU 1400。`allowed-ips` は venue (10.255.0.2/32 + 会場サブネット 192.168.11/30/40)。MSS clamp 有効。
+10.255.0.1/30、listen 51820、MTU 1400。`allowed-ips` は `0.0.0.0/0, ::/0`（全 peer 統一、2026-04-15 以降）。ループ防御は WG endpoint /32 static pin で担保。MSS clamp 有効。
 
 ### wg1 (GCP r2-gcp 向け)
 
-10.255.1.1/30、listen 51821、MTU 1400。`allowed-ips` には r2-gcp P2P (10.255.1.2/32) + r3 P2P (10.255.2.0/30) + 会場サブネット + **goog.json v4 全 94 本**。goog.json 更新時に allowed-ips も連動更新が必要 ([`../operations/goog-prefix-update.md`](../operations/goog-prefix-update.md) 参照)。
+10.255.1.1/30、listen 51821、MTU 1400。`allowed-ips` は `0.0.0.0/0, ::/0`。goog.json 更新時の allowed-ips 連動作業は **不要**（ループ防御は `34.97.197.104/32 via pppoe0` static pin で担保）。
 
 r2-gcp peer に会場プレフィックスを許可するのは、r1↔r3 直結断時に r2-gcp 経由で会場トラフィックを迂回受信するため。
 
@@ -190,7 +190,7 @@ r1 の動的 WAN IP 追従および r2-gcp endpoint の wg0 経由 double encaps
 ## 関連ドキュメント
 
 - [`../configs/r1-home.conf`](../configs/r1-home.conf) — 投入用 VyOS CLI コマンド集 (authorized_keys 含む)
-- [`../operations/goog-prefix-update.md`](../operations/goog-prefix-update.md) — goog.json + allowed-ips 連動更新
+- [`../operations/goog-prefix-update.md`](../operations/goog-prefix-update.md) — goog.json 静的ルート更新（allowed-ips は 0/0 固定のため連動不要）
 - [`../operations/nic2-wan-switchover.md`](../operations/nic2-wan-switchover.md) — wstunnel server 運用
 - [`../investigation/ix3315-migration.md`](../investigation/ix3315-migration.md) — 旧ルーターからの移行記録
 

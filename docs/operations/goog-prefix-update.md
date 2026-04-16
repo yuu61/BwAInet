@@ -70,17 +70,11 @@ set protocols bgp address-family ipv4-unicast redistribute static route-map GOOG
 
 `redistribute static` に `route-map` を必ず付ける。付け忘れると wg 管理用等の既存 static まで r3/r1 に漏れる。
 
-## r1 側の allowed-ips 連動更新 (必須)
+## r1 側の allowed-ips (2026-04-15 以降は連動不要)
 
-r1 の wg1 peer r2-gcp の `allowed-ips` にも goog.json v4 プレフィックスを追加する必要がある。追加しないと WG の crypto routing で Google 宛パケットがドロップされる。
+全 WG peer の `allowed-ips` は `0.0.0.0/0, ::/0` に統一済み。goog.json を更新しても WG 側の変更は一切不要。
 
-```
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 8.8.8.0/24
-set interfaces wireguard wg1 peer r2-gcp allowed-ips 34.64.0.0/10
-# ... (goog.json v4 全 94 本)
-```
-
-goog.json 更新時には r1 の allowed-ips も連動して更新する必要がある。
+ループ防御は WG endpoint への `/32` static pin（r1 は pppoe0 経由、r2/r3 は tracker スクリプトで動的更新）に一本化されており、allowed-ips をバックストップに使っていないため。
 
 ## r1 escape route (ルーティングループ防止)
 

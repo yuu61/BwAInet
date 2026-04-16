@@ -28,10 +28,9 @@
 | 用途 | RAM | 備考 |
 |------|-----|------|
 | VyOS VM (r3) | 4GB | BGP + DNS/DHCP + Flow Accounting + wstunnel |
-| zabbix-grafana CT | 8GB | Zabbix + DB + Grafana + Alloy |
-| local-server CT | 8GB | rsyslog + nfcapd (法執行対応専用) |
-| Proxmox ホスト | 4GB | Web UI, カーネルバッファ, I/O キャッシュ |
-| 予備 | 8GB | 追加 CT や突発対応 |
+| local-server CT | 12GB | rsyslog + nfcapd (法執行対応専用) |
+| zabbix-grafana CT | 10GB | Zabbix + DB + Grafana + Alloy |
+| Proxmox ホスト + 予備 | 6GB | Web UI, カーネルバッファ, I/O キャッシュ, 突発対応 |
 | **合計** | **32GB** | |
 
 ### ストレージ
@@ -104,10 +103,12 @@ X710 SFP+ #1 (nic2) → vmbr_trunk (VLAN-aware, VID 2-4094)
 | 種別 | VMID | 名称 | OS | vCPU | RAM | ディスク | 役割 |
 |------|------|------|-----|------|-----|---------|------|
 | VM | 100 | r3-vyos | VyOS | 4 (host, affinity 0-11) | 4GB | NVMe#1 8GB | ルーター、DNS/DHCP、BGP、NetFlow、wstunnel |
-| CT | 200 | local-server | Debian 12 | 2 | 8GB | NVMe#1 16GB + NVMe#2 mount | rsyslog + nfcapd (法執行対応) |
-| CT | 201 | zabbix-grafana | Debian 12 | 4 | 8GB | NVMe#1 32GB | Zabbix + DB + Grafana + Alloy |
+| CT | 200 | local-server | Debian 12 | 6 | 12GB | NVMe#1 16GB + NVMe#2 mount | rsyslog + nfcapd (法執行対応) |
+| CT | 201 | zabbix-grafana | Debian 12 | 6 | 10GB | NVMe#1 32GB | Zabbix + DB + Grafana + Alloy |
 
 削除済み: VM 101 (旧 Zabbix Docker Compose), VM 102 (UptimeKuma)。
+
+両 CT (200/201) は `unprivileged=1` + `features=nesting=1`。Debian 12 (systemd 252) 配下では `systemd-logind` が mount namespace を要求し、nesting=0 だと SSH ログイン時に `pam_systemd` が 25 秒タイムアウトする。nesting=1 は AppArmor profile を `lxc-container-default-with-nesting` に切り替え必要な /proc, /sys マウントを許可するもので、Docker や CT ネストの有効化を意味しない。
 
 ### r3-vyos の CPU アフィニティ
 
@@ -117,7 +118,7 @@ i9-12900H ハイブリッド構成で `affinity: 0-11` を設定し P-core (6P×
 
 旧 VM 101 は Ubuntu + Docker Compose 構成だったが、以下の理由で Debian 12 LXC CT への直インストールに再作成:
 
-- Docker-in-LXC の `nesting=1` + `keyctl` 特権を回避 (セキュリティ・デバッグ)
+- Docker デーモン + `keyctl` 特権を回避 (セキュリティ・デバッグ性向上)
 - Docker デーモン + overlay2 オーバーヘッドを削減 (同一スペックで性能向上)
 - systemd 直管理、journald/syslog 統合 (運用単純化)
 - Zabbix agent2 をホスト監視と素直に統合

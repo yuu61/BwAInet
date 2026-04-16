@@ -1,21 +1,32 @@
 #!/bin/bash
 # v6-health-monitor.sh — IPv6 出口ヘルスチェック & RA プレフィックス廃止/復旧
 #
-# r3 の VyOS task-scheduler で 5 分間隔実行:
-#   set system task-scheduler task v6-health interval 5
+# r3 の VyOS task-scheduler で 1 分間隔実行:
+#   set system task-scheduler task v6-health interval 1
 #   set system task-scheduler task v6-health executable path /config/scripts/v6-health-monitor.sh
 #
-# 動作:
-#   各出口 (OPTAGE via r1, GCP via r2) に対して ping プローブを実行。
-#   3 回連続失敗で障害判定 → 該当プレフィックスの RA を lifetime=0 に変更。
-#   3 回連続成功で復旧判定 → RA を設計値の lifetime に戻す。
+# 動作モード:
+#   (1) 定期モード (無引数)
+#       各出口 (OPTAGE via r1, GCP via r2) に対して ping プローブを実行。
+#       3 回連続失敗で障害判定 → 該当プレフィックスの RA を lifetime=0 に変更。
+#       3 回連続成功で復旧判定 → RA を設計値の lifetime に戻す。
+#       タイムライン (interval=1):
+#         t=0min   障害発生
+#         t=3min   3 回連続失敗 → RA lifetime=0 送出
 #
-# 判定タイムライン (interval=5 の場合):
-#   t=0min   障害発生
-#   t=15min  3 回連続失敗 → RA lifetime=0 送出
-#            クライアントが deprecated プレフィックスの使用を停止
+#   (2) 即時検証モード (--force-verify)
+#       v6-route-watcher.sh から netlink イベント駆動で呼ばれる想定。
+#       プローブを 1 回だけ実行し、その結果で即座に deprecate/restore 判定。
+#       カウンタは更新するが、閾値判定はスキップ。
+#       BGP 経路変化 (r1 node 死亡など) を ~3-5 秒で反映させるための高速経路。
 
 set -u
+
+# --- 引数パース ---
+FORCE_VERIFY=0
+if [ "${1:-}" = "--force-verify" ]; then
+    FORCE_VERIFY=1
+fi
 
 exec 9>/tmp/v6-health.lock
 flock -n 9 || { logger -t "v6-health" "another instance running, skip"; exit 0; }
@@ -188,15 +199,24 @@ check_exit() {
 
     # --- 通常運用 ---
     if probe_exit "$src_addr"; then
-        log "$name: probe OK (status=$status)"
+        log "$name: probe OK (status=$status, force=$FORCE_VERIFY)"
         echo 0 > "$STATE_DIR/${name}_fail"
         local ok_count
         ok_count=$(get_ok_count "$name")
         ok_count=$((ok_count + 1))
         echo "$ok_count" > "$STATE_DIR/${name}_ok"
 
-        if [ "$status" = "down" ] && [ "$ok_count" -ge "$OK_THRESHOLD" ]; then
-            log "$name exit RECOVERED ($ok_count consecutive OK)"
+        # --force-verify: 閾値を無視して status=down なら即 restore
+        # 通常: OK_THRESHOLD 連続成功で restore
+        local restore_trigger=0
+        if [ "$FORCE_VERIFY" = "1" ] && [ "$status" = "down" ]; then
+            restore_trigger=1
+        elif [ "$status" = "down" ] && [ "$ok_count" -ge "$OK_THRESHOLD" ]; then
+            restore_trigger=1
+        fi
+
+        if [ "$restore_trigger" = "1" ]; then
+            log "$name exit RECOVERED (ok_count=$ok_count, force=$FORCE_VERIFY)"
             if restore_prefix "$prefix" "$restore_mode" "$pref_lt" "$valid_lt"; then
                 echo "up" > "$STATE_DIR/${name}_status"
                 echo 0 > "$STATE_DIR/${name}_ok"
@@ -205,15 +225,24 @@ check_exit() {
             fi
         fi
     else
-        log "$name: probe FAIL (status=$status)"
+        log "$name: probe FAIL (status=$status, force=$FORCE_VERIFY)"
         echo 0 > "$STATE_DIR/${name}_ok"
         local fail_count
         fail_count=$(get_fail_count "$name")
         fail_count=$((fail_count + 1))
         echo "$fail_count" > "$STATE_DIR/${name}_fail"
 
-        if [ "$status" = "up" ] && [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then
-            log "$name exit FAILED ($fail_count consecutive failures)"
+        # --force-verify: 閾値を無視して status=up なら即 deprecate
+        # 通常: FAIL_THRESHOLD 連続失敗で deprecate
+        local deprecate_trigger=0
+        if [ "$FORCE_VERIFY" = "1" ] && [ "$status" = "up" ]; then
+            deprecate_trigger=1
+        elif [ "$status" = "up" ] && [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then
+            deprecate_trigger=1
+        fi
+
+        if [ "$deprecate_trigger" = "1" ]; then
+            log "$name exit FAILED (fail_count=$fail_count, force=$FORCE_VERIFY)"
             if deprecate_prefix "$prefix"; then
                 echo "down" > "$STATE_DIR/${name}_status"
                 echo 0 > "$STATE_DIR/${name}_fail"

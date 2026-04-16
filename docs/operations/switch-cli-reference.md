@@ -31,19 +31,17 @@
 |------|-------------------------------|--------------|---------------------|-------------------|
 | MLD Snooping (グローバル) | `ipv6 mld snooping` (Cisco) / `ipv6 mld-snooping enable` (FS) | デフォルト有効 (AOS-CX 10.16+) | `set protocols mld-snooping vlan <vlan>` | `/interface bridge set <bridge> igmp-snooping=yes` |
 | MLD Snooping (VLAN) | `ipv6 mld snooping vlan <id>` (Cisco) / `ipv6 mld-snooping vlan <id>` (FS) | `vlan <id>` → `ipv6 mld snooping enable` | VLAN 名で指定 | bridge 単位で一括 |
-| RA Guard ポリシー定義 | `ipv6 nd raguard policy <name>` → `device-role host` | `ipv6 nd-snooping ra-guard policy <name>` | `set forwarding-options access-security router-advertisement-guard` | bridge filter で ICMPv6 type 134 を drop |
-| RA Guard 適用 | `ipv6 nd raguard attach-policy <name>` | `nd-snooping ra-guard` | `interface <if> mark-interface block` | `/ipv6 firewall filter` |
 | Storm Control (マルチキャスト) | `storm-control multicast level <pps>` (Cisco) / `storm-control multicast <threshold>` (FS) | `storm-control <if> multicast level <pps>` | `set interfaces <if> unit 0 family ethernet-switching storm-control` | `/interface bridge port set storm-rate` |
+
+> **RA Guard**: スイッチでは設定しない (本プロジェクトの方針)。不正 RA 対策は WLC/AP 側で実施。
 
 ### 機種別の注意
 
 - **Cisco ISR 1100 (ESM)**: MLD Snooping の ESM 対応は文書上不明確 — 実機で `ipv6 mld snooping ?` で確認。WAN 側 EVC + bridge-domain では IP マルチキャスト非サポート
-- **MikroTik**: IGMP/MLD 共通設定。RA Guard はソフトウェア処理 (CPU) のため HW オフロード (CRS) では制限
-- **HPE Aruba CX**: RA Guard は ND Snooping グローバル有効化が前提
 
 ## 関連
 
-- [`../design/venue-switch.md`](../design/venue-switch.md) — 共通設計 (ポート種別 T1-T5、STP 方針、tagged 自力参加)
+- [`../design/venue-switch.md`](../design/venue-switch.md) — 共通設計 (ポート種別 T1-T5、tagged 自力参加)
 - [`../design/venue-switch1.md`](../design/venue-switch1.md) — sw01 (FS) 実装
 - [`../design/venue-switch2.md`](../design/venue-switch2.md) — sw02 (Cisco ISR 1100) 実装
 - [`../design/mgmt-vlan-address.md`](../design/mgmt-vlan-address.md) — 管理 VLAN アドレス表

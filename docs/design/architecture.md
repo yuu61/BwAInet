@@ -42,6 +42,8 @@
 
 OPTAGE (自宅 ISP) から DHCPv6-PD で /64 を取得する。OPTAGE は /64 のみ委任のため、自宅 LAN (192.168.10.0/24) は IPv4 only とし、取得した /64 は全て WireGuard トンネル経由で会場に転送する。会場側 r3 が VLAN 30 と 40 の両方で同一 /64 を RA 広告する。
 
+ただし、この構成は **OPTAGE が契約場所外の第三者利用として問題ないと明示承認することが前提**である。承認が得られない場合、参加者向け IPv6 egress としては使えない。詳細は [`../policy/gcp-tos-compliance.md`](../policy/gcp-tos-compliance.md) を参照。
+
 ### トラフィックフロー
 
 ```
