@@ -7,7 +7,7 @@
 | 機能 | 内容 |
 |------|------|
 | r2-gcp (トランジット) | WireGuard mesh + BGP でフォールバック経路 |
-| GCS ログ保存 | rsyslog → GCE → GCS で 180 日保持 |
+| GCS ログ保存 | local-server (CT 200) から GCS に直送 (curl raw REST API + `ifGenerationMatch=0`)、180 日保持、SA は `objectCreator` のみ |
 
 経路冗長化とログアーカイブのみで、GCP の活用としては薄い。Google グローバルの DevRel Central からカメラクルー・GDE 等の大物ゲストが来場する規模のイベントとして、GCP との機能連携を強化し、ネットワーク運用の質とデモ価値を高めたい。
 
@@ -148,11 +148,26 @@ r1 死時は BGP default が消えるため、**distance 210 の static default 
 
 r1-home から `default-originate` で流れてくる `0.0.0.0/0` / `::/0` を r2-gcp が受け入れると、GCP の static default (AD210) が BGP default (AD20) に負けて r2 の全アウトバウンドが wg 経由に吸い込まれる。**全 neighbor の import で default route を拒否**する。
 
-### NAT66 と v4 SNAT
+### NAT66 と v4 NAPT
 
-- **NAT66**: 会場 GCP /64 src → r2-gcp /96 `snat prefix to` (nftables)
-- **v4 SNAT**: 会場サブネット src → GCE 内部 IP に masquerade (Google 宛)
-- **WG トンネルアドレス SNAT**: r1/r3 の 10.255.0.0/16 も Google 向け masquerade
+- **NAT66**: 会場 GCP /64 src → r2-gcp /96 `snat prefix to` (nftables)、IID 下位 32bit 保持
+- **v4 NAPT (MASQUERADE)**: 会場サブネット src + WG transfer (10.255.0.0/16) → GCE 内部 IP (`10.174.0.7`) にポート変換付き多対一変換。GCP 側で 1:1 NAT により外部 IP (`34.97.197.104`) へ
+
+### Conntrack イベントログ (法執行対応)
+
+r2-gcp でも NAT 変換マッピングを記録する。`conntrack -E` で v4 NAPT と v6 NAT66 の両方を syslog に出力:
+
+- programname `conntrack-nat` (v4 NEW/DESTROY)、programname `conntrack-nat6` (v6 NEW/DESTROY)
+- facility local2、送信先は local-server (192.168.11.2:514 TCP) — wg1 経由で到達
+- 実装: `/etc/systemd/system/conntrack-logger.service` + `/usr/local/sbin/r2-conntrack-logger.sh`
+- リポジトリ内: `scripts/r2-conntrack-logger.sh`、`scripts/vyos-conntrack-logger.service`
+
+全体設計は [`logging-compliance.md`](logging-compliance.md) §4 参照。
+
+### Syslog / TZ
+
+- `system syslog remote 192.168.11.2 facility all level info protocol tcp port 514` (wg1 経由)
+- `system time-zone UTC` — 全機器 UTC 統一
 
 ### Google IP レンジの広告方式
 

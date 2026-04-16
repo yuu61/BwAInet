@@ -1,0 +1,8 @@
+[Unit]
+Description=BwAI forensic log push to GCS
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/gcs-forensic-push.sh

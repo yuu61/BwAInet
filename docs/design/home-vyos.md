@@ -75,7 +75,23 @@ LAN 内から自宅グローバル IP 宛のアクセスも内部 DNAT 先に届
 
 ## Conntrack イベントログ (NAPT 変換記録)
 
-法執行対応として、masquerade の NAPT 変換マッピングを記録する。`conntrack -E` で NEW/DESTROY を syslog (facility local2, tag `conntrack-nat`) に出力。対象は会場サブネットのみ、家族 LAN は除外。
+法執行対応として、masquerade の NAPT 変換マッピングを記録する。`conntrack -E` で NEW/DESTROY を syslog (facility local2, programname `conntrack-nat`) に出力。対象は会場サブネットのみ、家族 LAN は除外。
+
+実装: `/etc/systemd/system/conntrack-logger.service` + `/usr/local/sbin/r1-conntrack-logger.sh` (リポジトリ内 `scripts/r1-conntrack-logger.sh` と `scripts/vyos-conntrack-logger.service`)。VyOS 再起動後も自動起動。
+
+## Syslog 転送
+
+全 syslog を venue の local-server (192.168.11.2) に **TCP 514** で転送:
+
+```
+set system syslog remote 192.168.11.2 facility all level info protocol tcp port 514
+```
+
+wg0 経由で到達。送信元 IP は wg0 transfer net (10.255.0.1) のため、local-server の rsyslog 側 allow-from に `10.255.0.0/16` が含まれる必要がある (設計済み)。
+
+## Time Zone
+
+`system time-zone UTC` — 全ネットワーク機器・ログ集約層で UTC 統一。運用者向けの画面表示 (Grafana / Zabbix UI) のみ JST。ログ相関の観点で必須。
 
 ログ設計の全体像は [`logging-compliance.md`](logging-compliance.md) §4 を参照。
 

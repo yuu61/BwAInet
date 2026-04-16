@@ -103,7 +103,7 @@ X710 SFP+ #1 (nic2) → vmbr_trunk (VLAN-aware, VID 2-4094)
 | 種別 | VMID | 名称 | OS | vCPU | RAM | ディスク | 役割 |
 |------|------|------|-----|------|-----|---------|------|
 | VM | 100 | r3-vyos | VyOS | 4 (host, affinity 0-11) | 4GB | NVMe#1 8GB | ルーター、DNS/DHCP、BGP、NetFlow、wstunnel |
-| CT | 200 | local-server | Debian 12 | 6 | 12GB | NVMe#1 16GB + NVMe#2 mount | rsyslog + nfcapd (法執行対応) |
+| CT | 200 | local-server | Debian 12 | 6 | 12GB | NVMe#1 16GB (rootfs) + NVMe#2 458GB ext4 bind mount `/mnt/local-server-data` → CT 内 `/mnt/data` | rsyslog + nfcapd + GCS uploader (法執行対応) |
 | CT | 201 | zabbix-grafana | Debian 12 | 6 | 10GB | NVMe#1 32GB | Zabbix + DB + Grafana + Alloy |
 
 削除済み: VM 101 (旧 Zabbix Docker Compose), VM 102 (UptimeKuma)。

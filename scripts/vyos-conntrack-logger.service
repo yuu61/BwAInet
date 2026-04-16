@@ -1,0 +1,15 @@
+[Unit]
+Description=Conntrack NAT event logger (forensic)
+After=network-online.target rsyslog.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/config/scripts/conntrack-logger.sh
+Restart=always
+RestartSec=5
+KillMode=mixed
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
