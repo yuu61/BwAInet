@@ -17,7 +17,7 @@ VyOS REST API `/config-file` エンドポイントを使って、現在の runni
 | 名前 | 役割 | エンドポイント |
 |------|------|--------------|
 | r1 | 自宅 VyOS | https://192.168.10.1 |
-| r2 | GCP VyOS | https://10.255.1.2 |
+| r2 | GCP VyOS | https://10.255.255.2 (dum0、BGP 冗長) |
 | r3 | 会場 VyOS | https://192.168.11.1 |
 
 API キー: `BwAI`（全ルーター共通）

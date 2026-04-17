@@ -42,6 +42,8 @@
 
 OPTAGE (自宅 ISP) から DHCPv6-PD で /64 を取得する。OPTAGE は /64 のみ委任のため、自宅 LAN (192.168.10.0/24) は IPv4 only とし、取得した /64 は全て WireGuard トンネル経由で会場に転送する。会場側 r3 が VLAN 30 と 40 の両方で同一 /64 を RA 広告する。
 
+ただし、この構成は **OPTAGE が契約場所外の第三者利用として問題ないと明示承認することが前提**である。承認が得られない場合、参加者向け IPv6 egress としては使えない。詳細は [`../policy/gcp-tos-compliance.md`](../policy/gcp-tos-compliance.md) を参照。
+
 ### トラフィックフロー
 
 ```
@@ -100,43 +102,15 @@ WiFi:
 
 ## 会場 Proxmox サーバー設計
 
-詳細は [`venue-proxmox.md`](venue-proxmox.md) を参照。
+会場側のネットワーク機能 (r3-vyos VM, 監視 VM, ログ集約 CT) を単一の Minisforum MS-01 上に集約し、運搬機材を 1 台に削減する。プロキシ環境時は VyOS 上の wstunnel コンテナで WireGuard を WebSocket/TLS にカプセル化、解除時は直接接続に切り替える。
 
-### 概要
-
-会場側のネットワーク機能を Dell OptiPlex 3070 Micro 上の Proxmox VE で仮想化し、運搬機材を 1 台に集約する。
-
-| VM/CT | 役割 | リソース |
-|-------|------|---------|
-| r3-vyos (VM) | ルーター、DNS/DHCP、BGP、NetFlow、wstunnel (podman) | 2 vCPU, 4GB RAM |
-| local-srv (CT) | Grafana, rsyslog, nfcapd, SNMP Exporter | 2 vCPU, 8GB RAM |
-
-| NIC | チップ | 役割 |
-|-----|--------|------|
-| オンボード | Realtek RTL8111H (1GbE) | トランク → PoE スイッチ |
-| 外付け | USB 2.5GbE (テープ固縛) | アップリンク → blackbox |
-
-プロキシ環境時は VyOS 上の wstunnel (podman コンテナ) が WireGuard UDP パケットを WebSocket (TLS over TCP 443) にカプセル化し、HTTP CONNECT プロキシを透過する。プロキシ解除時は WireGuard endpoint を直接接続に切り替える。
+ハードウェア・NIC 構成・VM 配置の詳細は [`venue-proxmox.md`](venue-proxmox.md) を参照。
 
 ## 自宅 VyOS (r1) 設計
 
+自宅ルーター r1 (VyOS) は家族用 LAN 192.168.10.0/24・WireGuard (会場/GCP)・BGP (AS65002) を提供する。
+
 詳細は [`home-vyos.md`](home-vyos.md) を参照。
-
-### 概要
-
-自宅ルーターを NEC IX3315 から VyOS に移行する。家族用ネットワーク 192.168.10.0/24 は現行と同一の IP 体系・DHCP・DNS 設定を維持し、ダウンタイムを最小化する。
-
-| 機能 | 設定 |
-|------|------|
-| WAN | PPPoE (OPTAGE) → pppoe0 |
-| LAN | br0 (eth0, eth2): 192.168.10.1/24 |
-| DHCP | 192.168.10.3–199, 固定割り当て 3 台 |
-| DNS | フォワーディング (192.168.10.1) |
-| NAT | source masquerade + destination (→.9: SSH/HTTP/HTTPS/iperf3/WireGuard) |
-| IPv6 | DHCPv6-PD /64 を取得、自宅 LAN は IPv4 only、/64 は全て wg0 経由で会場へ転送 |
-| WireGuard | wg0: 10.255.0.1/30 (r3 直接), wg1: 10.255.1.1/30 (r2-gcp) |
-| WireGuard | wg0: r3 直接, wg1: r2-gcp (GCE) |
-| BGP | AS65002 (r3 直接 + r2-gcp トランジット) |
 
 ## VPN / ルーティング
 
@@ -164,47 +138,11 @@ WiFi:
 
 ### MTU 設計
 
-#### 自宅回線の実測パス MTU
+**結論: 全 WG インターフェース MTU = 1400 に統一。MSS clamping を併用し PMTUD に依存しない。**
 
-Cloudflare (1.1.1.1) への DF ビット付き ICMP で計測:
-
-```
-1464B payload + 28B header = 1492B  ← 通過
-1465B payload + 28B header = 1493B  ← DF エラー (192.168.10.1 から ICMP Fragmentation Needed)
-```
-
-**パス MTU = 1492** (PPPoE オーバーヘッド 8B: 1500 - 8 = 1492)
-
-#### トンネル経由の実効 MTU
-
-```
-自宅パス MTU:                                    1492
-
-WireGuard 直接 (UDP/IPv4):
-  1492 - 20(IPv4) - 8(UDP) - 32(WG header) =    1432
-
-WireGuard over wstunnel (WebSocket + TLS):
-  1492 - 20(IPv4) - 20(TCP) - 5(TLS record) - 14(WS frame) - 32(WG) = ~1401
-```
-
-#### WG MTU 設定: 1400
-
-wstunnel を使用せず WireGuard 直接接続とする方針により、GCP VPC MTU (1460) がボトルネックとなる。全 WG インターフェースを 1400 に統一することで、BGP フェイルオーバー (wg0→wg1) 時の TCP MSS 不整合を防ぐ。
-
-- GCP パス: 1400 + 60 = 1460 = GCP VPC MTU (余裕 0B、ちょうど収まる)
-- PPPoE パス: 1400 + 60 = 1460 < 1492 (余裕 32B)
-- 会場上流: 1400 + 60 = 1460 < 1500 (余裕 40B)
-- トンネル内 IPv6 の TCP MSS: 1400 - 40(IPv6) - 20(TCP) = **1340**
-- IPv6 最小 MTU (1280, RFC 8200) まで **120B の余裕**
-
-#### MSS Clamping
-
-PMTUD はパス上の ICMP フィルタリングにより信頼できない場合がある (Azure 等では ICMP が 50B 超でドロップされることを確認済み)。wg0 で TCP MSS clamping を設定し、PMTUD に依存しない設計にする。
-
-```
-# VyOS
-set firewall options interface wg0 adjust-mss clamp-mss-to-pmtu
-```
+- GCP VPC MTU (1460) が経路上の最小値であり、これがボトルネック
+- BGP フェイルオーバー (wg0→wg1) 時の TCP MSS 不整合を防ぐため全 WG で統一
+- 詳細な実測ログ・MTU 算定根拠は [`../investigation/path-mtu-measurement.md`](../investigation/path-mtu-measurement.md) を参照
 
 ### GCP 接続 (GCE VyOS トランジットルーター)
 
@@ -249,7 +187,7 @@ WireGuard 障害時 (自動フォールバック):
   r3 → wg1 → r2-gcp → wg0 → r1           AS path: 65001 → 64512 → 65002 (3 hop)
 ```
 
-WireGuard 直接リンク断で BGP セッションも落ち、自動的に r2-gcp 経由にフォールバック。local-preference で制御: r1 直接 = 200、r2-gcp の Google プレフィックス = 250 (r2-gcp 直接優先)、r2-gcp の default route = 50 (r1 優先を維持)。Google 宛 v4 トラフィックは r3 → r2-gcp 直接で、r1 を経由しない。
+WireGuard 直接リンク断で BGP セッションも落ち、自動的に r2-gcp 経由にフォールバック。local-preference で制御: r1 直接 = 250、r2-gcp の Google プレフィックス = 250 (AS path の短い r2-gcp 直を選択)、r2-gcp の default route = 50 (r1 優先を維持)。これにより Google 宛 v4 トラフィックは r3 → r2-gcp 直接で、家族用 LAN 192.168.10.0/24 は r3 → r1 を優先し、非対称ルーティングを避ける。
 
 #### GCE/GCS 向けトラフィック
 
@@ -263,22 +201,15 @@ r3 (local-srv)
 
 ## DNS / DHCP (VyOS 統一構成)
 
-DNS・DHCP を VyOS (r3) に統合し、別サーバー + GCE 冗長構成を廃止。アップリンクが 1 本のため r3 障害時には GCE standby にも到達不能であり、冗長化の実効性がない。
+DNS・DHCP は VyOS (r3) に統合し、別サーバー + GCE 冗長構成は廃止。アップリンクが 1 本のため r3 障害時には GCE standby にも到達不能であり、冗長化の実効性がない。
 
 | サービス | 実装 | 備考 |
 |---------|------|------|
 | DNS | VyOS `service dns forwarding` (PowerDNS Recursor) | クエリログ有効 |
 | DHCPv4 | VyOS `service dhcp-server` (内部 Kea) | forensic log 有効 |
-| DHCPv6 | VyOS `service dhcpv6-server` (内部 Kea) | Windows/macOS 用。iOS/Android は SLAAC |
+| DHCPv6 | **廃止** | iOS/Android 非対応・ソースアドレス選択制御不可。SLAAC + NDP dump で代替 |
 
-### RA フラグ設定
-
-| フラグ | 値 | 効果 |
-|---|---|---|
-| A (autonomous) | 1 | SLAAC 有効 (iOS/Android 用) |
-| M (managed) | 1 | DHCPv6 アドレス割り当て (Windows/macOS 用) |
-| O (other-config) | 1 | DHCPv6 で DNS 等の追加情報取得 |
-| RDNSS | 設定 | Android の DNS 解決に必須 |
+RA フラグ・RDNSS 等の詳細は [`venue-vyos.md`](venue-vyos.md) §4 (IPv6 / RA / DHCPv6) を参照。
 
 ## サービス構成
 

@@ -34,4 +34,9 @@ if ip link show pppoe0 >/dev/null 2>&1; then
   tc qdisc add dev pppoe0 handle ffff: ingress 2>/dev/null || tc qdisc replace dev pppoe0 handle ffff: ingress
   tc filter add dev pppoe0 parent ffff: protocol all u32 match u32 0 0 action mirred egress redirect dev ifb0
   tc qdisc replace dev ifb0 root cake bandwidth 950mbit overhead 8 mpu 64 wash ingress diffserv4
+
+  # DHCPv6-PD 由来の会場向け /64 ルートを boot 後に一度補正する
+  if [ -x /config/scripts/pd-update-venue.sh ]; then
+    /config/scripts/pd-update-venue.sh
+  fi
 fi

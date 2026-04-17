@@ -1,0 +1,10 @@
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+COPY main.go ./
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /out/golinks .
+
+FROM gcr.io/distroless/static-debian12:latest
+COPY --from=build /out/golinks /golinks
+EXPOSE 80
+ENTRYPOINT ["/golinks"]

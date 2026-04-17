@@ -1,94 +1,8 @@
 # 通信ログ保存設計 (法執行機関対応)
 
-## 1. 目的と記録ポリシー
+法執行機関からの照会に対応するためのログ収集・相関・保存設計。基本ポリシー (記録対象、保存期間、ランダム MAC の扱い) は [`../policy/logging-policy.md`](../policy/logging-policy.md) を参照。
 
-法執行機関からの照会に対し、通信記録を適切に提出できる体制を整備する。
-
-### 基本方針
-
-- IP ペイロード (通信内容) は**記録しない**
-- 通信メタデータ (誰が・いつ・どこと) のみを記録
-- 全ログを相互に紐付けて追跡可能にする
-- 保存期間: **180 日**
-- 利用規約 (AUP) で通信記録の取得を告知し、公序良俗に反する通信を禁止する
-
-### 利用規約 (Acceptable Use Policy)
-
-以下は会場掲示・配布用の本文 (そのまま掲示可)。
-
-```
-Build with AI in Kwansai 2026 ネットワーク利用規約
-
-本ネットワークは Build with AI in Kwansai 2026 運営チーム (NOC: Network Operations Center) が会場内で提供する Wi-Fi / 有線ネットワークです。
-本ネットワークに接続した時点で、以下のすべての内容に同意したものとみなします。
-
-1. 通信記録の取得
-   運営は、法執行機関対応および不正利用防止のため、本ネットワーク上を流れる
-   通信のメタデータ (接続元 / 接続先 IP アドレス、ポート番号、通信時刻、通信量、DNS クエリ名、DHCP リース情報、IPv6 アドレスとハードウェアアドレスの対応情報 (NDP) 等) を記録します。
-   通信の内容 (メッセージ本文、ファイルの中身等) は記録しません。
-   取得した記録は 180 日間保管します。
-
-2. 禁止事項
-   以下の行為を禁止します。
-   ・法令に違反する行為
-   ・公序良俗に反する行為
-   ・第三者の権利を侵害する行為
-   ・本ネットワークその他の設備に対する攻撃・妨害行為
-   ・運営が本イベントの運営上不適切と判断する行為
-
-3. 法執行機関への情報提供
-   日本国の法令に基づく正当な要請があった場合、運営は第 1 項で取得した記録を該当機関に提出することがあります。
-
-4. 通信経路に関する技術的事項
-   本ネットワークは通信最適化のため、Google 社のサービス (Google Cloud, Gmail, YouTube, Google 検索, Google Workspace 等) 宛の通信をGoogle Cloud Platform 経由で中継します。
-   このため、これらのサービスから観測される送信元 IP アドレスは、本ネットワーク経由で他のウェブサイト等にアクセスする場合とは異なるアドレスとなります。
-
-   また、Google Cloud 経由で中継される IPv6 通信では、送信元 IPv6 アドレスのプレフィックス (上位 96bit) がネットワーク中継装置のアドレスに変換されます。
-   お使いのデバイスに設定されている IPv6 アドレスと、外部サービスから観測される IPv6 アドレスは、下位 32bit のみ一致し、上位部分は異なります。
-
-   ご自身が管理される Google Cloud 上の仮想マシン等に対し送信元 IP アドレスによるアクセス制限を設定されている場合、本ネットワークから直接の接続ができない可能性があります。
-   該当する運用をされている方は通常の対処方法(踏み台サーバー、VPN、Identity-Aware Proxy 等) をご利用ください。
-   以下の代替手段も利用可能です。
-   ・gcloud compute ssh --tunnel-through-iap <VM>
-     (ローカルのシェルから IAP Tunneling 経由で SSH 接続)
-   ・Cloud Shell (ブラウザ上のシェル)
-
-5. 免責
-   本ネットワークはベストエフォートにより提供されます。
-   運営は安定した通信の提供に最善を尽くしますが、通信速度・可用性・継続性・セキュリティについて保証はできません。
-   本ネットワークの利用によって生じたいかなる損害についても、運営は責任を負いません。
-
-本規約に関するお問い合わせは会場内の運営スタッフまでお寄せください。
-
-Build with AI in Kwansai 2026 運営チーム
-```
-
-### ランダム MAC アドレスへの対応方針
-
-iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム MAC を使用するが、**per-SSID 固定** (同一 SSID に接続中は同じランダム MAC を維持) であるため、イベント期間中のログ相関には影響しない。
-
-人物特定については:
-
-- DHCP hostname ("〇〇のiPhone" 等) + ランダム MAC + IP + 通信時刻を記録として保持
-- それ以上の人物特定 (ランダム MAC → 物理デバイス → 所有者) が必要な場合は捜査機関側の権限で対応
-- 参加者はエンジニアが中心でありリテラシーが高いため、Captive Portal / 802.1X による本人確認は行わない
-
-※ Cisco AireOS 8.10 には LAA Mac Denial 機能があるが、iOS/Android の大半をブロックするため使用しない。
-
-### 記録対象と非記録対象
-
-| 記録する | 記録しない |
-|---|---|
-| 5-tuple (src/dst IP, src/dst port, protocol) | IP ペイロード (通信内容) |
-| タイムスタンプ, バイト数, パケット数 | HTTP URL / ヘッダ / ボディ |
-| DNS クエリ名 (qname) + 応答コード | DNS 応答レコード値 |
-| DHCP リース (IP ↔ MAC ↔ hostname) | ユーザー個人の認証情報 |
-| NDP テーブル (IPv6 ↔ MAC) | |
-| NAPT 変換マッピング (内部 IP:port ↔ グローバル IP:port) | |
-| NAT66 変換マッピング (GCP /64 SLAAC ↔ r2-gcp /96) | |
-| v4 SNAT 変換マッピング (内部 IP:port ↔ GCE IP:port) | |
-
-## 2. ログ相関モデル
+## 1. ログ相関モデル
 
 ### ログ種別と役割
 
@@ -96,7 +10,7 @@ iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム 
 [誰が]
   VyOS DHCP リースログ    → timestamp + IPv4 ↔ MAC ↔ hostname
   NDP テーブルダンプ       → timestamp + IPv6 ↔ MAC (全デバイス)
-  ※ DHCPv6 リースログは廃止 (後述「DHCPv6 廃止について」参照)
+  ※ DHCPv6 リースログは廃止 (SLAAC 一本化、NDP ダンプで代替)
 
 [何を調べた]
   VyOS DNS クエリログ     → timestamp + client IP + qname + rcode
@@ -105,9 +19,8 @@ iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム 
   NetFlow v9              → timestamp + 5-tuple + bytes/packets
 
 [NAT 変換]
-  Conntrack イベント (r1) → timestamp + NAPT 変換マッピング (内部 IP:port ↔ グローバル IP:port)
-  Conntrack イベント (r2-gcp) → timestamp + NAT66 変換 (GCP /64 SLAAC ↔ r2-gcp /96)
-                                           + v4 SNAT 変換 (内部 IP:port ↔ GCE IP:port)
+  Conntrack イベント (r1)     → NAPT 変換マッピング (内部 IP:port ↔ グローバル IP:port)
+  Conntrack イベント (r2-gcp) → NAT66 変換 + v4 NAPT (MASQUERADE)
 ```
 
 ### 共通結合キー
@@ -118,636 +31,254 @@ iOS 14+ / Android 10+ / Windows 11 / macOS 15 はデフォルトでランダム 
 
 ### 追跡例
 
-「2026-08-10 14:30 に example.com にアクセスしたデバイスは？」
+「2026-08-10 14:30 に example.com にアクセスしたデバイスは?」
 
 1. DNS クエリログから `example.com` を引いた client IP を特定
 2. NetFlow から当該 IP の通信フローを確認
 3. DHCP リースログ / NDP ダンプから IP → MAC → hostname を特定
-4. Conntrack ログから NAT 変換を特定:
-   - r1: 内部 IP:port ↔ グローバル IP:port (OPTAGE 経由の通信)
-   - r2-gcp: 内部 IP:port ↔ GCE IP:port (Google 向け v4 通信)
-   - r2-gcp: GCP /64 SLAAC ↔ r2-gcp /96 (GCP /64 経由の v6 通信)
-5. ※ MAC がランダムでも hostname + MAC + 時刻帯の組み合わせで捜査機関に提供可能
+4. Conntrack ログから NAT 変換を特定 (r1: NAPT / r2-gcp: NAT66 + v4 NAPT)
 
-## 3. VyOS DNS Forwarding 設定
+詳細なクエリパターンは [`../operations/log-query-cookbook.md`](../operations/log-query-cookbook.md) を参照。
 
-VyOS 内蔵の `service dns forwarding` (PowerDNS Recursor) を使用。Unbound は廃止。
+## 2. 収集経路 (設計方針)
 
-```
-# DNS フォワーディング
-set service dns forwarding listen-address 192.168.11.1
-set service dns forwarding listen-address 192.168.30.1
-set service dns forwarding listen-address 192.168.40.1
-set service dns forwarding allow-from 192.168.11.0/24
-set service dns forwarding allow-from 192.168.30.0/24
-set service dns forwarding allow-from 192.168.40.0/22
-set service dns forwarding system
+### VyOS 内蔵機能で完結
 
-# クエリログ有効化 (法執行対応)
-set service dns forwarding options 'log-common-errors=yes'
-set service dns forwarding options 'quiet=no'
-set service dns forwarding options 'logging-facility=0'
-```
+- **DNS**: `service dns forwarding` (PowerDNS Recursor)。`quiet=no` でクエリログ個別出力を有効化
+- **DHCPv4**: `service dhcp-server` (内部 Kea)。標準 syslog 出力 (`kea-dhcp4`) で MAC/IP/interface が取得できるため forensic hook は**不要**
+- **NetFlow**: `system flow-accounting netflow` v9 (対象 interface は `eth2.30` / `eth2.40` / `wg0` / `wg1`)
+- **NDP**: `ip -6 neigh show` を 1 分間隔の task-scheduler でロギング、facility local1
+- **Conntrack NAT**: `conntrack -E` を systemd サービスで syslog に出力 (r1, r2-gcp 両方)、facility local2
 
-PowerDNS Recursor のログは syslog 経由で出力される。`quiet=no` でクエリごとに以下のフォーマットで記録:
-
-```
-timestamp client_ip query_name query_type rcode
-```
-
-## 4. VyOS DHCP 設定 + Forensic Log
-
-VyOS 内蔵の `service dhcp-server` (内部 Kea) を使用。別サーバーの Kea は廃止。
-
-### DHCPv4
-
-```
-# VLAN 30 (staff + live)
-set service dhcp-server shared-network-name STAFF subnet 192.168.30.0/24 range 0 start 192.168.30.100
-set service dhcp-server shared-network-name STAFF subnet 192.168.30.0/24 range 0 stop 192.168.30.254
-set service dhcp-server shared-network-name STAFF subnet 192.168.30.0/24 default-router 192.168.30.1
-set service dhcp-server shared-network-name STAFF subnet 192.168.30.0/24 name-server 192.168.30.1
-set service dhcp-server shared-network-name STAFF subnet 192.168.30.0/24 lease 3600
-
-# VLAN 40 (user)
-set service dhcp-server shared-network-name USER subnet 192.168.40.0/22 range 0 start 192.168.40.100
-set service dhcp-server shared-network-name USER subnet 192.168.40.0/22 range 0 stop 192.168.43.254
-set service dhcp-server shared-network-name USER subnet 192.168.40.0/22 default-router 192.168.40.1
-set service dhcp-server shared-network-name USER subnet 192.168.40.0/22 name-server 192.168.40.1
-set service dhcp-server shared-network-name USER subnet 192.168.40.0/22 lease 3600
-```
-
-### DHCPv6 (廃止)
-
-> **廃止**: DHCPv6 サーバーは以下の理由により廃止し、IPv6 アドレス割り当ては SLAAC に一本化した。
->
-> 1. **iOS/Android が DHCPv6 IA_NA 非対応** — 参加者の大半を占めるモバイルデバイスが DHCPv6 でアドレスを取得できず、SLAAC が必須
-> 2. **RFC 6724 によるソースアドレス選択が OS 依存** — DHCPv6 で割り当てたアドレスが PBR (Policy-Based Routing) に使われる保証がなく、ログ追跡の信頼性が低下する
-> 3. **MAC ↔ IPv6 追跡は NDP テーブルダンプでカバー済み** — SLAAC アドレスであっても NDP ダンプ (セクション 8) で IPv6 ↔ MAC の対応を記録しており、DHCPv6 リースログがなくても法執行機関対応に支障はない
->
-> 以下の設定は削除済み:
->
-> ```
-> # (削除済み) DHCPv6 サーバー設定
-> # set service dhcpv6-server shared-network-name STAFF-V6 ...
-> # set service dhcpv6-server shared-network-name USER-V6 ...
-> ```
-
-### Forensic Log (Kea hook)
-
-VyOS 内蔵 Kea の設定ファイル (`/etc/kea/kea-dhcp4.conf`) に直接 hook を追加:
-
-```json
-{
-    "hooks-libraries": [
-        {
-            "library": "/usr/lib/kea/hooks/libdhcp_legal_log.so",
-            "parameters": {
-                "path": "/var/log/kea",
-                "name": "kea-legal"
-            }
-        }
-    ]
-}
-```
-
-記録内容: タイムスタンプ, リースタイプ (assign/renew/release), IP, MAC, hostname, lease duration
-
-## 5. VyOS Flow-Accounting 設定 (NetFlow v9)
-
-```
-set system flow-accounting interface eth2.30
-set system flow-accounting interface eth2.40
-set system flow-accounting interface wg0
-set system flow-accounting netflow version 9
-set system flow-accounting netflow server 192.168.11.2 port 2055
-set system flow-accounting netflow timeout expiry-interval 60
-set system flow-accounting netflow timeout flow-active 120
-set system flow-accounting netflow timeout flow-inactive 15
-set system flow-accounting netflow source-ip 192.168.11.1
-```
-
-対象インターフェース:
+### 対象インターフェース (NetFlow)
 
 - `eth2.30` — staff + live トラフィック
 - `eth2.40` — user トラフィック
-- `wg0` — VPN トンネル経由の全トラフィック
+- `wg0` — 自宅 r1 向け VPN トンネル
+- `wg1` — GCP r2-gcp 向け VPN トンネル
 
-※ `eth2.11` (mgmt) は対象外
+`eth2.11` (mgmt) は対象外。
 
-## 6. Conntrack イベントログ (r1, NAPT 変換記録)
+### DNS クエリログの永続化
 
-自宅 VyOS (r1) の pppoe0 で masquerade による NAPT が行われるため、conntrack イベントを記録して変換マッピングを保持する。
+VyOS 2026.03 (Circinus) で `service dns forwarding` の `options` 自由キーが廃止されたため、CLI から `quiet=no` を設定できない。pdns-recursor 設定ファイル `/run/pdns-recursor/recursor.conf` は commit のたびに再生成されるので、`/config/scripts/commit/post-hooks.d/99-pdns-quiet-no.sh` で **quiet=no 追記 + pdns-recursor restart** を強制する。
+
+スクリプトは `/config/` 配下にあるため VyOS のイメージ更新でも保持される。
+
+## 3. DHCPv6 廃止の方針
+
+DHCPv6 サーバーは廃止し SLAAC に一本化。理由:
+
+- iOS/Android が DHCPv6 IA_NA 非対応 → SLAAC 必須
+- RFC 6724 によるソースアドレス選択が OS 依存 → DHCPv6 アドレスが PBR に使われる保証なし
+- MAC ↔ IPv6 追跡は NDP テーブルダンプでカバー済み
+- kea が VIF の `interface` 指定に VyOS CLI で対応しておらず運用が複雑
+
+SLAAC (A flag) に統一、DNS は RDNSS + O flag で配布。詳細は [`../policy/logging-policy.md`](../policy/logging-policy.md) を参照。
+
+## 4. Conntrack NAT ログ設計
 
 ### なぜ必要か
 
-会場側の NetFlow は NAT 前の内部 IP を記録するが、法執行機関からの照会は「**グローバル IP X.X.X.X のポート Y から Z 時刻に通信があった**」という形式で来る。masquerade の変換テーブル (内部 IP:port ↔ グローバル IP:port) を記録しないと、グローバル IP 起点での内部デバイス特定ができない。
+会場側 NetFlow は NAT 前の内部 IP を記録するが、法執行機関からの照会は「**グローバル IP X.X.X.X のポート Y から Z 時刻に通信があった**」という形式で来る。NAT 変換テーブルがないと、グローバル IP 起点での内部デバイス特定ができない。
 
-### conntrack イベントロガー
+### r1 (NAPT 変換)
 
-`conntrack -E` で NEW/DESTROY イベントをリアルタイムに syslog へ出力する。対象は会場サブネットのみ (家族用 LAN 192.168.10.0/24 は除外)。
+`conntrack -E` で NEW/DESTROY イベントをリアルタイム syslog 出力。対象は会場サブネット (192.168.11/30/40) のみ、家族用 LAN (192.168.10.0/24) は除外。facility local2、programname `conntrack-nat`。
 
-#### スクリプト (`/config/scripts/conntrack-logger.sh`)
+### r2-gcp (NAT66 + v4 NAPT)
 
-```bash
-#!/bin/bash
-# Conntrack イベントログ: 会場サブネットの NAPT 変換マッピングを syslog に記録
-# 対象: 192.168.11.0/24 (mgmt), 192.168.30.0/24 (staff), 192.168.40.0/22 (user)
-# 除外: 192.168.10.0/24 (家族用 LAN)
-conntrack -E -e NEW,DESTROY -o timestamp 2>/dev/null | \
-    grep --line-buffered -E 'src=(192\.168\.(11|30|4[0-3])\.)' | \
-    logger -t conntrack-nat -p local2.info
-```
+同様に conntrack イベントを記録。対象:
 
-#### systemd サービス (`/etc/systemd/system/conntrack-logger.service`)
+| NAT 種別 | 変換内容 |
+|----------|---------|
+| NAT66 (IPv6) | 会場 GCP /64 src (`2600:1900:41d1:92::/64`) → r2-gcp /96 (`2600:1900:41d0:9d::/96`)、IID 下位 32bit 保持 |
+| v4 NAPT (MASQUERADE) | 会場サブネット src (`192.168.0.0/16`) + WG transfer (`10.255.0.0/16`) → GCE 内部 IP (`10.174.0.7`) にポート変換付き多対一変換。GCE 外部 IP (`34.97.197.104`) へは GCP 側で 1:1 NAT |
 
-```ini
-[Unit]
-Description=Conntrack NAT Translation Logger
-After=network.target
+v4 側は `conntrack-nat`、v6 側は `conntrack-nat6` という別 programname で出力。rsyslog の programname マッチに影響しない分離。
 
-[Service]
-ExecStart=/config/scripts/conntrack-logger.sh
-Restart=always
-RestartSec=5
+syslog 転送 (wg 経由で local-server 192.168.11.2 に集約) は VyOS config で `system syslog remote 192.168.11.2 protocol tcp port 514`。
 
-[Install]
-WantedBy=multi-user.target
-```
+## 5. タイムゾーン方針
 
-#### 有効化
+**全機器を UTC に統一**。運用者向けの画面表示 (Grafana / Zabbix UI) だけ JST 表示。
 
-```bash
-chmod +x /config/scripts/conntrack-logger.sh
-systemctl daemon-reload
-systemctl enable --now conntrack-logger.service
-```
+| 層 | TZ |
+|---|---|
+| ネットワーク機器 (r1/r2/r3/SW/AP/WLC) | UTC |
+| ログ集約 CT 200 | UTC |
+| 監視 CT 201 (OS / Zabbix server / Loki / Alloy) | UTC |
+| Proxmox ホスト | UTC |
+| Grafana 表示 | `default_timezone = Asia/Tokyo` |
+| Zabbix frontend 表示 | DB `config.default_timezone = Asia/Tokyo` |
 
-### 出力例
+ファイル名の時刻表記は UTC (`Z` suffix 明記)、ファイル内の timestamp も UTC。運用者は UI で JST 表示を利用。
+
+## 6. local-server CT 構成
+
+local-server (CT 200) は**法執行対応ログ集約専用**。rsyslog + nfcapd + GCS uploader のみを稼働させ、運用監視ツール (Zabbix, Grafana, SNMP Exporter 等) は配置しない。運用監視は zabbix-grafana (CT 201) で行う。詳細は [`venue-proxmox.md`](venue-proxmox.md) を参照。
+
+### ディレクトリ構造 (NVMe #2 上)
 
 ```
-[1723286400.123456]    [NEW] tcp      6 120 SYN_SENT src=192.168.40.123 dst=93.184.216.34 sport=54321 dport=443 [UNREPLIED] src=93.184.216.34 dst=<pppoe0-ip> sport=443 dport=12345
-[1723286460.789012] [DESTROY] tcp      6 src=192.168.40.123 dst=93.184.216.34 sport=54321 dport=443 src=93.184.216.34 dst=<pppoe0-ip> sport=443 dport=12345
+/mnt/data/ (NVMe #2, ext4, 458GB, noatime)            root:adm 2755
+├── nfcapd/                                            nfcapd:adm 2750
+│   ├── nfcapd.current.<pid>                           書き込み中
+│   └── nfcapd.YYYYMMDDHHMM                            5 分ローテ後、immutable
+├── syslog-archive/                                    root:adm 2750
+│   ├── dns/<hostname>-YYYY-MM-DDTHHZ.log              pdns-recursor (quiet=no のクエリ)
+│   ├── conntrack/<hostname>-YYYY-MM-DDTHHZ.log        facility local2 (r1/r2)
+│   ├── ndp/<hostname>-YYYY-MM-DDTHHZ.log              facility local1 (r3 NDP dump)
+│   ├── dhcp/<hostname>-YYYY-MM-DDTHHZ.log             programname kea* (r3 Kea)
+│   └── all/<hostname>-YYYY-MM-DDTHHZ.log              全 syslog 保険コピー
+├── manifests/                                         root:adm 2750
+│   ├── preliminary/seal-<epoch>.{json,sha256,tsr}     会場封印
+│   └── final/seal-<epoch>.{json,sha256,tsr}           自宅最終封印
+└── .gcs-state/                                        root:adm 2750
+    ├── sa-key.json                                    0400 root:root (SA 認証鍵)
+    ├── pushed.list                                    送信済みファイル追跡
+    ├── last-push.json                                 前回 push 統計 (Zabbix 監視対象)
+    └── errors.log                                     push 失敗時のみ追記
 ```
 
-読み方:
+**ファイル命名**: `<hostname>-YYYY-MM-DDTHHZ.log` (UTC、rsyslog `%HOSTNAME%` + `$YEAR/$MONTH/$DAY/$HOUR`)。CT 200 が UTC TZ のため自然に UTC ベース。
 
-- original tuple: `src=192.168.40.123 sport=54321` → 内部クライアント
-- reply tuple: `dst=<pppoe0-ip> dport=12345` → NAT 後のグローバル IP:ポート
-- NEW → セッション確立、DESTROY → セッション終了
+**kea/ ディレクトリは廃止**: Kea は r3 内蔵で動作し syslog 経由でログが来るため、`syslog-archive/dhcp/` に統合。
 
-### syslog 転送 (r1 → Local Server)
+### rsyslog 設計
 
-conntrack ログを WireGuard 経由で会場の Local Server (192.168.11.2) に転送し、既存のログパイプラインに合流させる。
+- **TCP 514** 受信 (VyOS 系の損失防止優先): r1 / r2-gcp / r3
+- **UDP 514** 受信も併設: Cisco SW (TCP syslog ポートが 601 で非互換)、WLC、その他 UDP のみ対応機器
+- ソース IP フィルタ: `192.168.11.0/24` + `10.255.0.0/16` (WG mesh) + `127.0.0.1` のみ許可、他は stop
+- ファイル書き込み: `root:adm 0640` (setgid 継承)、dir は `2750`
+- `$DynaFileCloseTimeout 300` で時間境界 +5 分で前時ファイルを自動 close (GCS 送信時の整合性確保)
+- **運用可視化用**に zabbix-grafana CT (192.168.11.6:1514) の Alloy に forward (RFC 5424 octet-counted)。ログの**原本は local-server 側に保持**、Alloy は読み取り専用経路
 
-```
-set system syslog host 192.168.11.2 facility local2 level info
-```
+設定ファイル: `/etc/rsyslog.d/60-bwai-forensic.conf` (リポジトリ内 `scripts/local-server/rsyslog-60-bwai-forensic.conf`)
 
-## 6b. Conntrack イベントログ (r2-gcp, NAT66 / v4 SNAT 変換記録)
+### nfcapd
 
-GCP トラフィック最適化 (詳細は [`gcp-integration.md`](gcp-integration.md) を参照) により、r2-gcp で以下の NAT が行われる:
+- UDP 受信ポート 2055
+- nfdump 1.7.1: `-T all` は**廃止**され全拡張自動捕捉、`-l` は `-w` に変更
+- `-t 300` で 5 分間隔ファイルローテーション、`-e` で rotate 時 EOF marker
+- systemd unit: `User=nfcapd Group=adm`、`ProtectSystem=strict` + `ReadWritePaths=/mnt/data/nfcapd` の hardening
 
-| NAT 種別 | 変換内容 | 対象トラフィック |
-|----------|---------|-----------------|
-| NAT66 (IPv6) | 会場 GCP /64 src (`2600:1900:41d1:92::/64`) → r2-gcp /96 (`2600:1900:41d0:9d::/96`)、`snat prefix to` により IID 下位 32bit を保持 | GCP /64 を src に持つ v6 トラフィック |
-| v4 SNAT | 会場サブネット src (`192.168.0.0/16`) → GCE 内部 IP (`10.174.0.7`) → GCE 外部 IP (`34.97.197.104`, 1:1 NAT) | goog.json 宛の v4 トラフィック |
+設定ファイル: `/etc/systemd/system/nfcapd.service` (リポジトリ内 `scripts/local-server/nfcapd.service`)
 
-法執行機関からの照会が「GCE の外部 IP (`34.97.197.104`) から通信があった」「IPv6 アドレス `2600:1900:41d0:9d::xxxx` から通信があった」という形式で来た場合、r2-gcp の conntrack ログがないと内部デバイスを特定できない。
+### Alloy / Loki (運用可視化)
 
-### conntrack イベントロガー (r2-gcp)
+CT 201 上で Alloy が TCP 1514 で RFC 5424 octet-counted を受信し、Loki (127.0.0.1:3100) に push。Grafana で Explore 検索。
 
-r1 と同様に `conntrack -E` で NAT 変換イベントを syslog に記録する。
+- Loki: filesystem-backed、retention 14 日 (運用目的、法執行原本は GCS 側)
+- Alloy config: `loki.source.syslog` + `loki.relabel` + `loki.write`
+- Grafana datasource: `/etc/grafana/provisioning/datasources/loki.yaml`
 
-#### スクリプト (`/config/scripts/conntrack-logger.sh`)
+## 7. 転送・アーカイブ (GCS 直送)
 
-```bash
-#!/bin/bash
-# Conntrack イベントログ: NAT66 / v4 SNAT の変換マッピングを syslog に記録
-# 対象: 会場サブネット (192.168.0.0/16) および GCP /64 (2600:1900:41d1:92::/64)
-conntrack -E -e NEW,DESTROY -o timestamp 2>/dev/null | \
-    grep --line-buffered -E 'src=(192\.168\.|2600:1900:41d1:92:)' | \
-    logger -t conntrack-nat -p local2.info
-```
-
-#### systemd サービス
-
-r1 と同じユニットファイル (`/etc/systemd/system/conntrack-logger.service`) を配置し有効化する。
-
-#### syslog 転送 (r2-gcp → Local Server)
-
-conntrack ログを WireGuard (wg2) 経由で会場の Local Server (192.168.11.2) に転送する。
+venue Proxmox は借用機のため、**イベント中から GCS に継続アップロード**し、搬送中の物理障害リスクを低減する (GCE 中継は廃止)。
 
 ```
-set system syslog host 192.168.11.2 facility local2 level info
+[事前準備 (5 日) + 本番 (8 時間) + 片付け = 約 6 日運用中、継続 rsync]
+  VyOS (r3)  ──syslog/NetFlow──→ local-server CT → ファイル保存 (NVMe #2)
+  r1         ──syslog──→          local-server CT → ファイル保存
+  r2-gcp     ──syslog──→          local-server CT → ファイル保存
+  SW/WLC     ──syslog (UDP)──→   local-server CT → ファイル保存
+                                    │
+                                    └──→ curl raw REST API (5 分間隔 systemd timer)
+                                          ↓ ifGenerationMatch=0 (上書き不可)
+                                    gs://bwai-forensic-2026/
+
+[運用可視化 (法執行ログとは独立)]
+  local-server (rsyslog) ──forward──→ Alloy (CT 201) → Loki → Grafana
 ```
 
-### 出力例
+### アップロード実装
 
-#### NAT66 (IPv6)
+**raw REST API + `ifGenerationMatch=0`** を使用:
 
-```
-[1723286400.123456]    [NEW] udp  17 30 src=2600:1900:41d1:92:a891:4504:ae8a:591f dst=2607:f8b0:400a:80b::200e sport=54321 dport=443 [UNREPLIED] src=2607:f8b0:400a:80b::200e dst=2600:1900:41d0:9d::ae8a:591f sport=443 dport=54321
-```
+- `gcloud storage cp` / `gsutil cp` は preflight GET/HEAD を発行するため `storage.objects.get` が必要 → **objectCreator のみでは 403**
+- `curl -X POST https://storage.googleapis.com/upload/storage/v1/b/<bucket>/o?uploadType=media&name=<path>&ifGenerationMatch=0` なら create-only、`storage.objects.create` のみで動作
+- `ifGenerationMatch=0` により同名オブジェクトが既に存在する場合は **HTTP 412** で拒否 → 上書き不可 = WORM の自然強制
 
-読み方:
-- original tuple: `src=2600:1900:41d1:92:a891:4504:ae8a:591f` → 会場デバイスの GCP /64 SLAAC アドレス
-- reply tuple: `dst=2600:1900:41d0:9d::ae8a:591f` → NAT66 後の r2-gcp /96 アドレス (IID 下位 32bit `ae8a:591f` が保持される)
-- `snat prefix to /96` により外部 IP の下位 32bit から元デバイスを特定可能 (IID 下位 32bit 衝突は SLAAC ランダム生成のため会場規模では事実上発生しない)
-- 会場デバイスの SLAAC アドレス → NDP ダンプで MAC → DHCP リースで hostname を特定
+### 送信対象と除外
 
-#### v4 SNAT
+- 対象: `*.log` (`/mnt/data/syslog-archive/**/`), `nfcapd.20*` (`/mnt/data/nfcapd/`)
+- 除外: mtime 10 分以内のファイル (書き込み中の可能性)、`.gcs-state/*`、`nfcapd.current.*`
+- 冪等性: `.gcs-state/pushed.list` で送信済みファイルを追跡、重複送信スキップ
 
-```
-[1723286400.789012]    [NEW] tcp   6 120 SYN_SENT src=192.168.40.123 dst=142.250.196.110 sport=54321 dport=443 [UNREPLIED] src=142.250.196.110 dst=10.174.0.7 sport=443 dport=12345
-```
+### SA 権限と Retention
 
-読み方:
-- original tuple: `src=192.168.40.123` → 会場デバイスの内部 IPv4
-- reply tuple: `dst=10.174.0.7` → SNAT 後の GCE 内部 IP (外部では `34.97.197.104`)
-- GCE の 1:1 NAT により、外部から見た IP は `34.97.197.104` となる
+- SA: `forensic-uploader@bwai-noc.iam.gserviceaccount.com`
+- ロール: **`roles/storage.objectCreator` のみ** (list/read/delete/overwrite すべて不可)
+- SA キー: CT 200 `/mnt/data/.gcs-state/sa-key.json` (0400 root:root)
+- Retention: **180 日** 設定、lock は**イベント終了後**に実施 (事前準備期間中のテスト削除余地を残すため)
 
-### 照会対応
+### タイマー
 
-```bash
-# r2-gcp の NAT66 変換: 外部 IPv6 → 会場デバイスの SLAAC アドレス
-grep "conntrack-nat" /var/log/syslog | grep "dst=2600:1900:41d0:9d:"
+- systemd unit: `/etc/systemd/system/gcs-forensic-push.{service,timer}`
+- 実行間隔: 5 分 (`OnUnitActiveSec=5min`)
+- `RandomizedDelaySec=30` で並列性ばらつき吸収
 
-# r2-gcp の v4 SNAT 変換: GCE 内部 IP (= 外部 34.97.197.104) → 会場デバイス
-grep "conntrack-nat" /var/log/syslog | grep "dst=10.174.0.7"
+スクリプト本体: `/usr/local/sbin/gcs-forensic-push.sh` (リポジトリ内 `scripts/local-server/gcs-forensic-push.sh`)
+運用手順 (SA キー更新、手動再投入、障害復旧): [`../operations/gcs-upload-ops.md`](../operations/gcs-upload-ops.md)
 
-# 特定内部 IP の Google 向け通信
-grep "conntrack-nat" /var/log/syslog | grep "src=192.168.40.123"
-```
+## 8. 保存期間と保存先
 
-## 7. VyOS RA 設定
-
-IPv6 アドレスは SLAAC で割り当てる。DHCPv6 は廃止したため M flag は無効化済み。
-
-```
-# VLAN 30
-set interfaces ethernet eth2 vif 30 ipv6 address autoconf
-set service router-advert interface eth2.30 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.30 other-config-flag true
-set service router-advert interface eth2.30 name-server <prefix>::1
-
-# VLAN 40
-set service router-advert interface eth2.40 prefix <delegated-prefix>::/64 autonomous-flag true
-set service router-advert interface eth2.40 other-config-flag true
-set service router-advert interface eth2.40 name-server <prefix>::1
-```
-
-> **変更点**: `managed-flag true` を削除。DHCPv6 サーバー廃止に伴い M flag を無効化し、SLAAC に一本化した。
-
-| フラグ | 値 | 効果 |
+| 層 | 場所 | 保持 |
 |---|---|---|
-| A (autonomous) | 1 | SLAAC 有効 (全 OS 共通) |
-| M (managed) | 0 (デフォルト) | DHCPv6 アドレス割り当て無効 (DHCPv6 廃止のため) |
-| O (other-config) | 1 | DHCPv6 で DNS 等の追加情報取得 (対応 OS 向け) |
-| RDNSS | 設定 | Android の DNS 解決に必須 (DHCPv6 非対応のため) |
+| 原本 (CT 200) | `/mnt/data/` (NVMe #2) | イベント期間 + 搬送期間のみ (約 7 日) |
+| 原本 (GCS) | `gs://bwai-forensic-2026/` | **180 日**、イベント後 lock で不可逆 |
+| 運用可視化 (Loki) | CT 201 rootfs | **14 日**、法執行対応とは別経路 |
 
-### DHCPv6 廃止について
+### ローテーションポリシー
 
-DHCPv6 サーバーは廃止し、IPv6 アドレス割り当ては SLAAC に一本化した。理由は以下の通り:
+- **nfcapd**: 5 分ローテ (`-t 300`)
+- **syslog**: **時次ローテ** (rsyslog DynaFile で `$HOUR` 変数を使用、UTC)
+  - append 方式でなくファイル名分割で、rotate 後のファイルは immutable
+  - GCS 継続アップロードが上書き衝突を起こさないため必須
+- **logrotate は使わない**: イベント期間が短く、GCS 側に長期保管する設計
 
-1. **iOS/Android が DHCPv6 IA_NA 非対応** — 参加者の大半を占めるモバイルデバイスが DHCPv6 でアドレスを取得できない
-2. **RFC 6724 によるソースアドレス選択が OS 依存** — DHCPv6 で割り当てたアドレスが PBR に使われる保証がなく、Windows/macOS でも SLAAC アドレスが選択される場合がある
-3. **MAC ↔ IPv6 追跡は NDP テーブルダンプでカバー済み** — セクション 8 の NDP ダンプにより全デバイスの IPv6 ↔ MAC 対応を記録しており、DHCPv6 リースログは不要
+## 9. 監視 (Zabbix)
 
-| OS | DHCPv6 IA_NA | SLAAC | RDNSS |
-|---|---|---|---|
-| Windows 11 | 対応 | 対応 | 対応 |
-| macOS 15 | 対応 | 対応 | 対応 |
-| iOS 18 | **非対応** | 対応 | 対応 |
-| Android 15 | **非対応** | 対応 | 対応 (必須) |
+CT 201 の Zabbix server から CT 200 を監視。テンプレート: **"BwAI Forensic local-server"**。
 
-全デバイスが SLAAC で IPv6 アドレスを取得するため、NDP テーブルダンプ (セクション 8) で IPv6 ↔ MAC の対応を記録する。
-
-## 8. NDP テーブルダンプ
-
-1 分間隔の cron で VyOS の IPv6 neighbor テーブルを記録。iOS/Android を含む全デバイスの IPv6 ↔ MAC 対応を取得する。
-
-### スクリプト (`/config/scripts/ndp-dump.sh`)
-
-```bash
-#!/bin/bash
-# NDP テーブルダンプ (IPv6 ↔ MAC 記録)
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-ip -6 neigh show | while read -r line; do
-    echo "${TIMESTAMP} ${line}"
-done | logger -t ndp-dump -p local1.info
-```
-
-### cron 設定
-
-```
-set system task-scheduler task ndp-dump interval 1m
-set system task-scheduler task ndp-dump executable path /config/scripts/ndp-dump.sh
-```
-
-### 出力例
-
-```
-2026-08-10T14:30:00Z fe80::1a2b:3c4d:5e6f:7890 dev eth2.40 lladdr aa:bb:cc:dd:ee:ff REACHABLE
-2026-08-10T14:30:00Z 2001:db8::abcd dev eth2.30 lladdr 11:22:33:44:55:66 STALE
-```
-
-## 9. nfcapd コレクター構成 (Local Server)
-
-ローカルサーバー (192.168.11.2) で nfcapd を稼働させ、VyOS からの NetFlow を受信。
-
-### インストール
-
-```bash
-apt install nfdump
-```
-
-### systemd ユニット (`/etc/systemd/system/nfcapd.service`)
-
-```ini
-[Unit]
-Description=NetFlow Capture Daemon
-After=network.target
-
-[Service]
-ExecStart=/usr/bin/nfcapd -w -D -l /var/log/nfcapd -p 2055 -T all -t 300
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-パラメータ:
-
-- `-l /var/log/nfcapd` — 保存ディレクトリ
-- `-p 2055` — 受信ポート
-- `-T all` — 全拡張フィールドを記録
-- `-t 300` — 5 分間隔でファイルローテーション
-
-## 10. 転送・アーカイブ (rsyslog → GCE → GCS)
-
-### rsyslog 転送設定 (VyOS → Local Server → GCE)
-
-VyOS のログ (DNS クエリ、DHCP forensic、NDP ダンプ) は syslog 経由で Local Server に転送し、さらに GCE に転送。
-
-```
-# VyOS → Local Server
-set system syslog host 192.168.11.2 facility all level info
-
-# Local Server rsyslog.conf → GCE 転送 (既存パイプライン活用)
-# *.* @@<gce-ip>:514
-```
-
-### nfcapd ファイル転送 (rsync)
-
-```bash
-# cron (15 分間隔)
-*/15 * * * * rsync -az /var/log/nfcapd/ <gce-user>@<gce-ip>:/var/log/nfcapd/
-```
-
-### GCS 保存先
-
-ログは保持ポリシー (Retention Policy) 付きの `bwai-compliance-logs` バケットに保存 (180 日保持、ロック済み)。詳細はセクション 11「ログ封印」を参照。
-
-## 11. イベント終了後のログ封印
-
-イベント終了後、ログファイルの改ざんがないことを証明するため、全ログのハッシュを取得し複数人で保存する。
-
-### 封印スクリプト (`/config/scripts/seal-logs.sh`)
-
-```bash
-#!/bin/bash
-# イベント終了後に実行: 全ログの SHA-256 ハッシュを生成
-SEAL_DATE=$(date -u +"%Y%m%dT%H%M%SZ")
-SEAL_FILE="/var/log/log-seal-${SEAL_DATE}.txt"
-
-echo "=== BwAI Network Log Seal ===" > "$SEAL_FILE"
-echo "Sealed at: ${SEAL_DATE}" >> "$SEAL_FILE"
-echo "Sealed by: $(whoami)@$(hostname)" >> "$SEAL_FILE"
-echo "" >> "$SEAL_FILE"
-
-# NetFlow
-echo "--- NetFlow (nfcapd) ---" >> "$SEAL_FILE"
-find /var/log/nfcapd -type f -name "nfcapd.*" | sort | while read -r f; do
-    sha256sum "$f" >> "$SEAL_FILE"
-done
-
-# DNS クエリログ
-echo "--- DNS query log ---" >> "$SEAL_FILE"
-sha256sum /var/log/syslog* 2>/dev/null | grep -v "No such" >> "$SEAL_FILE"
-
-# DHCP forensic log
-echo "--- DHCP forensic log ---" >> "$SEAL_FILE"
-find /var/log/kea -type f -name "kea-legal*" | sort | while read -r f; do
-    sha256sum "$f" >> "$SEAL_FILE"
-done
-
-# Conntrack イベントログ (r1 から転送済み)
-echo "--- Conntrack NAT log ---" >> "$SEAL_FILE"
-grep "conntrack-nat" /var/log/syslog* 2>/dev/null | sha256sum >> "$SEAL_FILE"
-
-# NDP ダンプ (syslog 内)
-echo "--- Seal file hash ---" >> "$SEAL_FILE"
-# 封印ファイル自体のハッシュ (最終行を除く) を表示
-sha256sum "$SEAL_FILE"
-```
-
-### 封印手順
-
-1. **イベント終了直後**に封印スクリプトを実行
-2. 生成された封印ファイル (`log-seal-<timestamp>.txt`) の **SHA-256 ハッシュ**を取得
-3. ハッシュを**複数の NOC メンバー** (最低 2 名) がそれぞれ独立に保存
-   - 個人の端末にテキストファイルとして保存
-   - チャット (Slack / Discord 等) に投稿して記録
-   - 写真撮影 (物理的な記録) も有効
-4. RFC 3161 タイムスタンプを取得 (後述)
-5. 封印ファイル + タイムスタンプ応答を GCS 保持ポリシー付きバケットにアップロード
-
-### RFC 3161 タイムスタンプ (TSA)
-
-信頼された第三者機関 (TSA: Time-Stamping Authority) が封印ファイルに対して署名付きタイムスタンプを発行する。電子署名法において法的効力があり、「この時点でこのデータが存在した」ことを第三者が証明できる。
-
-```bash
-# タイムスタンプ要求の生成
-openssl ts -query -data /var/log/log-seal-${SEAL_DATE}.txt \
-    -no_nonce -sha256 -cert -out seal.tsq
-
-# TSA にタイムスタンプを要求 (FreeTSA.org: 無料)
-curl -s -H "Content-Type: application/timestamp-query" \
-    --data-binary @seal.tsq \
-    https://freetsa.org/tsr -o seal.tsr
-
-# タイムスタンプの検証
-openssl ts -verify -data /var/log/log-seal-${SEAL_DATE}.txt \
-    -in seal.tsr \
-    -CAfile freetsa-cacert.pem \
-    -untrusted freetsa-tsa.crt
-```
-
-※ FreeTSA.org の CA 証明書は事前にダウンロードしておくこと:
-
-```bash
-wget https://freetsa.org/files/cacert.pem -O freetsa-cacert.pem
-wget https://freetsa.org/files/tsa.crt -O freetsa-tsa.crt
-```
-
-### GCS Retention Policy (WORM)
-
-ログアーカイブ用の GCS バケットに保持ポリシー (Retention Policy) を設定し、保持期間中はオブジェクトの削除・上書きを物理的に不可能にする。ポリシーをロックすると、ポリシー自体の削除・短縮も不可能になる。
-
-```bash
-# バケット作成
-gcloud storage buckets create gs://bwai-compliance-logs \
-    --location=asia-northeast1
-
-# 保持ポリシー設定 (180 日 = 15552000 秒)
-gcloud storage buckets update gs://bwai-compliance-logs \
-    --retention-period=15552000
-
-# ポリシーをロック (不可逆: ロック後はポリシーの削除・短縮不可)
-gcloud storage buckets update gs://bwai-compliance-logs \
-    --lock-retention-period
-```
-
-ロック後はプロジェクトオーナーでも保持期間中のオブジェクト削除は不可能。
-
-### 封印後のアップロード
-
-```bash
-# 封印ファイル + TSA 応答を保持ポリシー付きバケットにアップロード
-gcloud storage cp /var/log/log-seal-${SEAL_DATE}.txt gs://bwai-compliance-logs/seal/
-gcloud storage cp seal.tsr gs://bwai-compliance-logs/seal/
-gcloud storage cp seal.tsq gs://bwai-compliance-logs/seal/
-```
-
-### 正当性証明の三層構造
-
-| 層 | 手法 | 証明できること |
+| 監視項目 | Zabbix key | トリガー |
 |---|---|---|
-| 1. 人的証人 | SHA-256 ハッシュを複数 NOC メンバーが独立保存 | 封印時点のハッシュが合意されていたこと |
-| 2. 第三者証明 | RFC 3161 TSA タイムスタンプ | 封印ファイルが特定時刻に存在し、以降改変されていないこと |
-| 3. 物理的保護 | GCS Retention Policy (ロック済み) | ログ本体が保持期間中に削除・改変されていないこと |
+| rsyslog active | `systemd.unit.info[rsyslog.service,ActiveState]` | High: `!= "active"` |
+| nfcapd active | `systemd.unit.info[nfcapd.service,ActiveState]` | High: `!= "active"` |
+| gcs timer active | `systemd.unit.info[gcs-forensic-push.timer,ActiveState]` | Warning: `!= "active"` |
+| GCS push errors | `vfs.file.size[/mnt/data/.gcs-state/errors.log]` | Warning: `> 0` |
+| GCS push stall | `vfs.file.time[.../last-push.json,modify]` | Warning: age `> 600s` |
+| `/mnt/data` 使用率 | 標準 Linux テンプレート | Warning 50% / High 80% |
 
-### 検証方法
+運用対応 runbook: [`../operations/zabbix-forensic-monitoring.md`](../operations/zabbix-forensic-monitoring.md)
 
-照会時にログの改ざんがないことを証明する:
+## 10. イベント終了後のログ封印
 
-```bash
-# 1. 封印ファイルのハッシュを再計算し、NOC メンバーの保存済みハッシュと照合
-sha256sum /var/log/log-seal-*.txt
+搬送中の改ざん検知とイベント終了後の GCS 転送完了検証を両立するため、封印は **2 段階** で実施する。
 
-# 2. 個別ログファイルのハッシュを封印ファイルの記録と照合
-sha256sum /var/log/nfcapd/nfcapd.202608101430 | diff - <(grep "nfcapd.202608101430" /var/log/log-seal-*.txt)
+1. **予備封印 (会場、電源オフ前)**: 搬送中の改ざん検知の基準点
+2. **最終封印 (自宅ラボ)**: GCS 最終同期・検証後。照会対応の正式な根拠
 
-# 3. TSA タイムスタンプの検証 (封印ファイルが TSA 署名時点から無改変)
-openssl ts -verify -data /var/log/log-seal-*.txt -in seal.tsr \
-    -CAfile freetsa-cacert.pem -untrusted freetsa-tsa.crt
+GCS Retention Policy (WORM) のロックは最終封印・検証完了後 (不可逆)。**初期化は GCS 転送完了確認が取れるまで行わない**。
 
-# 4. GCS Retention Policy の保持状態を確認
-gcloud storage objects describe gs://bwai-compliance-logs/seal/log-seal-*.txt \
-    --format="value(retentionExpirationTime)"
-# → 保持期限の日時が表示される
-```
+正当性証明の三層構造 (人的証人・RFC 3161 TSA・GCS WORM) は [`../policy/logging-policy.md`](../policy/logging-policy.md) を、具体的な手順は [`../operations/log-sealing.md`](../operations/log-sealing.md) を参照。
 
-## 12. 保存期間とローテーション
+## 11. 照会対応
 
-| ログ種別 | ローカル保存 | GCE 保存 | GCS 保存 |
-|---|---|---|---|
-| NetFlow (nfcapd) | 30 日 | 90 日 | 180 日 |
-| DNS クエリログ | 30 日 | 90 日 | 180 日 |
-| DHCP forensic log | 30 日 | 90 日 | 180 日 |
-| NDP テーブルダンプ | 30 日 | 90 日 | 180 日 |
-| Conntrack NAT ログ (r1) | 30 日 | 90 日 | 180 日 |
+nfdump, grep ベースの具体的なクエリ例は [`../operations/log-query-cookbook.md`](../operations/log-query-cookbook.md) を参照。総合追跡テンプレート (DNS → DHCP → NDP → NetFlow → NAT) もそちらに記載。
 
-ローカルのローテーション:
+照会対応は GCS 上のデータのみで完結する設計 (venue Proxmox は借用機のため返却済み)。
 
-```bash
-# /etc/logrotate.d/compliance-logs
-/var/log/nfcapd/*.nfcapd {
-    daily
-    rotate 30
-    compress
-    missingok
-    notifempty
-}
-```
+## 関連
 
-## 13. 照会対応手順
-
-### nfdump による NetFlow 検索
-
-```bash
-# 特定 IP の全通信フロー
-nfdump -R /var/log/nfcapd -o long "src ip 192.168.40.123 or dst ip 192.168.40.123"
-
-# 特定時間帯の通信
-nfdump -R /var/log/nfcapd -t 2026/08/10.14:00:00-2026/08/10.15:00:00
-
-# 特定ポートへの通信 (例: HTTPS)
-nfdump -R /var/log/nfcapd "dst port 443 and src ip 192.168.40.123"
-
-# 通信量トップ 10 (IP 別)
-nfdump -R /var/log/nfcapd -s srcip -n 10
-```
-
-### DNS クエリログ検索
-
-```bash
-# 特定ドメインへのクエリを検索
-grep "example.com" /var/log/syslog | grep "dns-forwarding"
-
-# 特定クライアントのクエリ
-grep "192.168.40.123" /var/log/syslog | grep "dns-forwarding"
-```
-
-### DHCP リースログ検索
-
-```bash
-# 特定 MAC アドレスのリース履歴
-grep "aa:bb:cc:dd:ee:ff" /var/log/kea/kea-legal*.txt
-
-# 特定 IP のリース履歴
-grep "192.168.40.123" /var/log/kea/kea-legal*.txt
-```
-
-### NDP ダンプ検索
-
-```bash
-# 特定 MAC の IPv6 アドレス履歴
-grep "aa:bb:cc:dd:ee:ff" /var/log/syslog | grep "ndp-dump"
-
-# 特定 IPv6 アドレスの MAC 特定
-grep "2001:db8::abcd" /var/log/syslog | grep "ndp-dump"
-```
-
-### Conntrack NAT ログ検索 (r1 → Local Server 転送済み)
-
-```bash
-# 特定内部 IP の NAPT 変換マッピング
-grep "conntrack-nat" /var/log/syslog | grep "src=192.168.40.123"
-
-# 特定グローバルポートからの逆引き (外部からの照会対応)
-grep "conntrack-nat" /var/log/syslog | grep "dport=12345"
-
-# 特定時間帯の全 NAT 変換
-grep "conntrack-nat" /var/log/syslog | grep "1723286[4-5]"
-```
-
-### 総合追跡 (IP → デバイス → 全通信)
-
-```bash
-# Step 1: 時刻から IP を使っていた MAC を特定
-grep "192.168.40.123" /var/log/kea/kea-legal*.txt
-
-# Step 2: その MAC の IPv6 アドレスも特定
-grep "<mac-address>" /var/log/syslog | grep "ndp-dump"
-
-# Step 3: 両 IP の DNS クエリを取得
-grep "192.168.40.123\|<ipv6-address>" /var/log/syslog | grep "dns-forwarding"
-
-# Step 4: 両 IP の NetFlow を取得
-nfdump -R /var/log/nfcapd "src ip 192.168.40.123 or dst ip 192.168.40.123"
-
-# Step 5: NAPT 変換マッピングを取得 (グローバル IP:port との対応)
-grep "conntrack-nat" /var/log/syslog | grep "src=192.168.40.123"
+- [`../policy/logging-policy.md`](../policy/logging-policy.md) — 記録ポリシー、保存期間、ランダム MAC 方針
+- [`../operations/local-server-ops.md`](../operations/local-server-ops.md) — rsyslog / nfcapd / GCS 運用 runbook
+- [`../operations/gcs-upload-ops.md`](../operations/gcs-upload-ops.md) — GCS 転送検証・SA 運用
+- [`../operations/zabbix-forensic-monitoring.md`](../operations/zabbix-forensic-monitoring.md) — 監視トリガー対応
+- [`../operations/log-sealing.md`](../operations/log-sealing.md) — 封印・TSA・GCS WORM 手順
+- [`../operations/log-query-cookbook.md`](../operations/log-query-cookbook.md) — 照会対応クエリ例
+- [`venue-proxmox.md`](venue-proxmox.md) — local-server CT の構成
+- [`venue-vyos.md`](venue-vyos.md) — r3 側のログ収集設定
+- [`home-vyos.md`](home-vyos.md) — r1 側 conntrack-logger
+- [`gcp-integration.md`](gcp-integration.md) — r2-gcp 側 NAT66 / NAPT

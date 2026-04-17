@@ -1,0 +1,74 @@
+// =============================================================
+// BwAI Alloy config (CT 201 zabbix-grafana, 192.168.11.6)
+// 役割:
+//   1. syslog receiver (1514/tcp, RFC 5424 octet-counted) ← CT 200 rsyslog から
+//   2. Loki へ push (127.0.0.1:3100)
+//   3. CT 自身の Prometheus metrics (unix exporter) は維持
+// =============================================================
+
+logging {
+  level = "info"
+}
+
+// --- Syslog receiver ---
+// CT 200 rsyslog から TCP 1514 で受ける (RFC 5424 octet-counted framing)
+loki.source.syslog "forensic" {
+  listener {
+    address              = "0.0.0.0:1514"
+    protocol             = "tcp"
+    syslog_format        = "rfc5424"
+    idle_timeout         = "300s"
+    use_incoming_timestamp = true
+    labels = {
+      source = "forensic",
+    }
+  }
+  forward_to    = [loki.write.default.receiver]
+  relabel_rules = loki.relabel.forensic.rules
+}
+
+// --- Syslog ラベル整形 ---
+// %HOSTNAME% (原ルーター名), syslogtag から program を抽出
+loki.relabel "forensic" {
+  forward_to = []
+  rule {
+    source_labels = ["__syslog_message_hostname"]
+    target_label  = "host"
+  }
+  rule {
+    source_labels = ["__syslog_message_app_name"]
+    target_label  = "program"
+  }
+  rule {
+    source_labels = ["__syslog_message_severity"]
+    target_label  = "severity"
+  }
+  rule {
+    source_labels = ["__syslog_message_facility"]
+    target_label  = "facility"
+  }
+}
+
+// --- Loki push ---
+loki.write "default" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}
+
+// --- CT 自身のメトリクス (既存) ---
+prometheus.exporter.unix "default" {
+  include_exporter_metrics = true
+  disable_collectors       = ["mdadm"]
+}
+
+prometheus.scrape "default" {
+  targets = array.concat(
+    prometheus.exporter.unix.default.targets,
+    [{
+      job         = "alloy",
+      __address__ = "127.0.0.1:12345",
+    }],
+  )
+  forward_to = []
+}

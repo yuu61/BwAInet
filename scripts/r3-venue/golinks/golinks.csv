@@ -1,0 +1,13 @@
+# go.bwai links (編集したら 2 秒以内に反映されます)
+# format: key,target
+# - target が http(s):// で始まらない場合 http:// を自動補完
+# - target は http/https のみ許可 (javascript: / data: / file: 等は拒否)
+# - key は / を含めて階層可 (例: event/gcp)
+# - ルート (go.bwai/) は -root フラグで指定 (既定は connpass イベントページ)
+# - '#' から行末はコメント
+
+gcp,https://trygcp.dev/claim/build-ai-gdg-kwansai-2026
+event,https://gdgkwansai.connpass.com/event/381901/
+zabbix,192.168.11.3
+grafana,192.168.11.3:3000
+wlc,192.168.11.10

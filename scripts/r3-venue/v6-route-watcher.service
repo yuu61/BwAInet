@@ -1,0 +1,20 @@
+[Unit]
+Description=IPv6 default route watcher for v6-health trigger
+Documentation=file:/config/scripts/v6-route-watcher.sh
+After=network-online.target frr.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/config/scripts/v6-route-watcher.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# ip -6 monitor + v6-health-monitor (curl) は CAP_NET_ADMIN / NET_RAW 要求する可能性
+# VyOS の FRR/kernel にアクセスするため root で動かす（VyOS では通常 root 運用）
+User=root
+
+[Install]
+WantedBy=multi-user.target

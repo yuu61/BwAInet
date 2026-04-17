@@ -1,0 +1,9 @@
+*.key.json
+.gcs-sa-key.json
+*-sa-key.json
+*.pem
+*.p12
+
+# local state
+.env
+.env.local
