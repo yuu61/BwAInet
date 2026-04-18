@@ -1,0 +1,15 @@
+[Unit]
+Description=softflowd NetFlow v9 exporter (bw) on %i
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+EnvironmentFile=/etc/default/softflowd-bw-%i
+ExecStart=/usr/sbin/softflowd -i %i -n ${COLLECTOR} -v 9 -T full -6 -m 32768 -t maxlife=60 -t expint=10 -p /run/softflowd-bw-%i.pid
+PIDFile=/run/softflowd-bw-%i.pid
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

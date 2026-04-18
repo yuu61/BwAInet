@@ -1,0 +1,531 @@
+{
+  "title": "BwAI Network Overview",
+  "uid": "bwai-network",
+  "tags": ["bwai", "network", "snmp", "zabbix"],
+  "schemaVersion": 39,
+  "version": 2,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "annotations": {"list": []},
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Zabbix",
+        "query": "alexanderzobnin-zabbix-datasource",
+        "current": {"selected": false, "text": "Zabbix", "value": "Zabbix"},
+        "hide": 0,
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Reachability (ICMP)",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "ICMP Ping (1=up, 0=down)",
+      "gridPos": {"x": 0, "y": 1, "w": 12, "h": 7},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "green", "value": 1}
+          ]},
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ],
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "/Venue\\/.*/"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "ICMP ping"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "ICMP Latency",
+      "gridPos": {"x": 12, "y": 1, "w": 12, "h": 7},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "showPoints": "never"},
+          "color": {"mode": "palette-classic"},
+          "unit": "s"
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}},
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "/Venue\\/.*/"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "ICMP response time"},
+          "functions": [{"def": {"category": "Filter", "name": "removeBelowValue", "params": [{"name": "n", "type": "float"}], "defaultParams": ["0"]}, "params": ["0.0000001"], "text": "removeBelowValue(0.0000001)"}],
+          "options": {"skipEmptyValues": true, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "bargauge",
+      "title": "ICMP Loss (%)",
+      "gridPos": {"x": 0, "y": 8, "w": 24, "h": 5},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1},
+            {"color": "orange", "value": 10},
+            {"color": "red", "value": 50}
+          ]},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "/Venue\\/.*/"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "ICMP loss"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Routers (r1-home / r2-gcp / r3-venue)",
+      "gridPos": {"x": 0, "y": 13, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "bargauge",
+      "title": "CPU Load (1min avg)",
+      "gridPos": {"x": 0, "y": 14, "w": 8, "h": 6},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1},
+            {"color": "orange", "value": 2},
+            {"color": "red", "value": 4}
+          ]},
+          "unit": "short",
+          "min": 0,
+          "max": 4
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/Routers"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Load average (1m avg)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "bargauge",
+      "title": "Memory Utilization",
+      "gridPos": {"x": 8, "y": 14, "w": 8, "h": 6},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 70},
+            {"color": "orange", "value": 85},
+            {"color": "red", "value": 95}
+          ]},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/Routers"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Memory utilization, %"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Uptime",
+      "gridPos": {"x": 16, "y": 14, "w": 8, "h": 6},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value", "graphMode": "none", "textMode": "value_and_name", "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+          "unit": "s"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/Routers"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Uptime (network)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Router Load Avg (1m)",
+      "gridPos": {"x": 0, "y": 20, "w": 12, "h": 7},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 20, "showPoints": "never"},
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}},
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/Routers"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Load average (1m avg)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Router Memory Utilization",
+      "gridPos": {"x": 12, "y": 20, "w": 12, "h": 7},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 20, "showPoints": "never"},
+          "color": {"mode": "palette-classic"},
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}},
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/Routers"},
+          "host": {"filter": "/.*/"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Memory utilization, %"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "WLC (Cisco 3504)",
+      "gridPos": {"x": 0, "y": 27, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "APs Connected",
+      "gridPos": {"x": 0, "y": 28, "w": 6, "h": 5},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value", "graphMode": "area", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "red", "value": null},
+            {"color": "orange", "value": 1},
+            {"color": "green", "value": 15}
+          ]},
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/WLC"},
+          "host": {"filter": "wlc-3504"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "AP count (associated)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Clients Connected",
+      "gridPos": {"x": 6, "y": 28, "w": 6, "h": 5},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value", "graphMode": "area", "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/WLC"},
+          "host": {"filter": "wlc-3504"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Active client count (sum of WLANs)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "gauge",
+      "title": "WLC CPU",
+      "gridPos": {"x": 12, "y": 28, "w": 6, "h": 5},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "showThresholdLabels": false, "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}
+          ]},
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/WLC"},
+          "host": {"filter": "wlc-3504"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "CPU utilization (5sec avg)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "gauge",
+      "title": "WLC Memory",
+      "gridPos": {"x": 18, "y": 28, "w": 6, "h": 5},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "showThresholdLabels": false, "showThresholdMarkers": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}
+          ]},
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/WLC"},
+          "host": {"filter": "wlc-3504"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Memory usage (%)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "AP / Client Count 時系列",
+      "gridPos": {"x": 0, "y": 33, "w": 24, "h": 7},
+      "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 25, "showPoints": "always"},
+          "color": {"mode": "palette-classic"},
+          "unit": "short"
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["last", "max"]}},
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "0",
+          "group": {"filter": "Venue/WLC"},
+          "host": {"filter": "wlc-3504"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "AP count (associated)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        },
+        {
+          "refId": "B",
+          "queryType": "0",
+          "group": {"filter": "Venue/WLC"},
+          "host": {"filter": "wlc-3504"},
+          "application": {"filter": ""},
+          "itemTag": {"filter": ""},
+          "item": {"filter": "Active client count (sum of WLANs)"},
+          "functions": [],
+          "options": {"skipEmptyValues": false, "disableDataAlignment": false, "showDisabledItems": false, "useZabbixValueMapping": false, "useTrends": "default"},
+          "resultFormat": "time_series",
+          "datasource": {"type": "alexanderzobnin-zabbix-datasource", "uid": "${datasource}"}
+        }
+      ]
+    }
+  ]
+}

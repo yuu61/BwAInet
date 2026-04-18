@@ -218,7 +218,8 @@ RA フラグ・RDNSS 等の詳細は [`venue-vyos.md`](venue-vyos.md) §4 (IPv6 
 | DNS / DHCP | VyOS (r3) | 名前解決 / IP 配布 |
 | Grafana | Local Server (local) / GCE (active, 外部公開) | 監視ダッシュボード |
 | rsyslog | Local Server → GCE → GCS | ログ集約・アーカイブ |
-| nfcapd | Local Server | NetFlow 収集 |
+| nfcapd (forensic) | Local Server (port 2055) | VyOS pmacctd → NetFlow v9 収集 (5-tuple, 180 日) |
+| softflowd + nfcapd-bw | r3 (wg0/wg1 別プロセス) → Local Server (port 2056/2057) | 帯域分析 (route × up/down × IPv4/IPv6)。pmacctd が `out_if` を埋めない制約のバイパス |
 
 ## 通信ログ保存 (法執行機関対応)
 

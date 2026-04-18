@@ -8,15 +8,19 @@
 
 - SSH: `ssh root@192.168.11.2` (公開鍵認証、6 鍵配備済み)
 - TZ: **UTC** (出力する時刻は全て UTC、file 名も UTC の `Z` suffix)
-- 主要サービス: `rsyslog`, `nfcapd`, `gcs-forensic-push.timer`
+- 主要サービス: `rsyslog`, `nfcapd` (forensic), `gcs-forensic-push.timer`, `nfcapd-bw@r1` / `nfcapd-bw@r2` (bw 分析), `netflow-bw-summary.timer`, `netflow-summary.timer`
 - データ: `/mnt/data` (NVMe #2, 458GB, ext4, noatime)
+  - `/mnt/data/nfcapd/` — forensic NetFlow (pmacctd、180 日)
+  - `/mnt/data/nfcapd-bw-r1/` — 帯域分析用 wg0 経由 (softflowd、short-term)
+  - `/mnt/data/nfcapd-bw-r2/` — 帯域分析用 wg1 経由 (softflowd、short-term)
 
 ## 稼働確認 (5 分で完走)
 
 ```bash
 ssh root@192.168.11.2 "
-systemctl is-active rsyslog nfcapd gcs-forensic-push.timer
-ss -lnp | grep -E ':(514|2055)'
+systemctl is-active rsyslog nfcapd nfcapd-bw@r1 nfcapd-bw@r2 \
+  gcs-forensic-push.timer netflow-summary.timer netflow-bw-summary.timer
+ss -lnp | grep -E ':(514|2055|2056|2057)'
 df -h /mnt/data
 cat /mnt/data/.gcs-state/last-push.json
 wc -l /mnt/data/.gcs-state/errors.log
@@ -24,8 +28,8 @@ wc -l /mnt/data/.gcs-state/errors.log
 ```
 
 期待:
-- `active active active`
-- TCP 514 / UDP 514 / UDP 2055 すべて listen
+- すべて `active`
+- TCP 514 / UDP 514 / UDP 2055 / UDP 2056 / UDP 2057 すべて listen
 - `/mnt/data` 使用量 80% 未満
 - `last-push.json` の `end` が直近 5 分以内、`errors: 0`
 - `errors.log` が 0 行
@@ -57,6 +61,61 @@ nfdump -r "$LATEST" -c 20 -o extended
 
 # 特定 IP のフロー抽出
 nfdump -R /mnt/data/nfcapd "src ip 192.168.40.123 or dst ip 192.168.40.123" -o extended | head -30
+```
+
+## 帯域分析パイプライン (softflowd → nfcapd-bw → netflow-bw-summary)
+
+forensic 用 NetFlow とは独立した系統。Grafana「BwAI NetFlow Analytics」の Bandwidth 3 ロウ (All routes / r1 / r2) に供給する。
+
+```
+r3 softflowd-bw@wg0 ──NetFlow v9──▶ 192.168.11.2:2056 ──▶ nfcapd-bw@r1 ──▶ /mnt/data/nfcapd-bw-r1/
+r3 softflowd-bw@wg1 ──NetFlow v9──▶ 192.168.11.2:2057 ──▶ nfcapd-bw@r2 ──▶ /mnt/data/nfcapd-bw-r2/
+                                                                           │
+                                                                           ▼  5 min
+                                                             netflow-bw-summary.py
+                                                                           │
+                                                                           ▼ HTTP push
+                                                             Loki {source="netflow", type="bw"}
+```
+
+### 動作確認
+
+```bash
+# r3 側 exporter
+ssh r3-venue 'systemctl is-active softflowd-bw@wg0 softflowd-bw@wg1'
+
+# local-server 側 collector + summarizer
+systemctl is-active nfcapd-bw@r1 nfcapd-bw@r2 netflow-bw-summary.timer
+ls -la /mnt/data/nfcapd-bw-r1 /mnt/data/nfcapd-bw-r2
+
+# 最新の bw 集計結果
+tail -5 /var/log/netflow/netflow-bw-$(date -u +%Y%m%d).json | python3 -m json.tool
+```
+
+### 障害対応
+
+**r3 の softflowd が落ちている** (image rolling update 直後に多い):
+
+```bash
+ssh r3-venue '/config/scripts/softflowd-bw/bootstrap.sh'
+```
+
+`/usr/sbin/softflowd` が消えていれば `/config/scripts/softflowd-bw/softflowd_*.deb` から自動で dpkg -i、systemd unit を `/etc/systemd/system/` に再配置、enable + start する。
+
+**nfcapd-bw が port bind エラー**:
+
+```bash
+ss -ulnp | grep -E '2056|2057'   # 既存プロセス特定
+systemctl restart nfcapd-bw@r1 nfcapd-bw@r2
+```
+
+**Loki に bw が来ない**:
+
+```bash
+journalctl -u netflow-bw-summary.service --since '30 min ago'
+curl -sG 'http://192.168.11.6:3100/loki/api/v1/query_range' \
+  --data-urlencode 'query={source="netflow", type="bw"}' \
+  --data-urlencode 'since=30m' | python3 -m json.tool | head -20
 ```
 
 ## 障害対応

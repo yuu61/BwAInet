@@ -5,6 +5,7 @@ Wants=nfcapd.service
 
 [Service]
 Type=oneshot
+EnvironmentFile=-/etc/default/netflow-summary
 ExecStart=/usr/bin/python3 /usr/local/sbin/netflow-summary.py
 User=nfcapd
 Group=adm
