@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NetFlow summary every 5 minutes (offset 30s after nfcapd rotation)
+
+[Timer]
+# nfcapd は :00 :05 :10 ... の 5 分刻みでローテートする (-t 300)
+# ローテ完了後に確実に集計するため 30 秒のオフセットを設ける
+OnCalendar=*:0/5:30
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

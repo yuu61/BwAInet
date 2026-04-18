@@ -1,0 +1,312 @@
+{
+  "title": "BwAI Syslog Explorer",
+  "uid": "bwai-syslog",
+  "tags": ["bwai", "syslog", "loki"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "annotations": {"list": []},
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Host",
+        "type": "query",
+        "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+        "query": {"label": "host", "refId": "LokiVariableQueryEditor-VariableQuery", "stream": "{source=\"forensic\"}", "type": 1},
+        "current": {"value": "$__all", "text": "All", "selected": true},
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "program",
+        "label": "Program",
+        "type": "query",
+        "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+        "query": {"label": "program", "refId": "LokiVariableQueryEditor-VariableQuery", "stream": "{source=\"forensic\"}", "type": 1},
+        "current": {"value": "$__all", "text": "All", "selected": true},
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "search",
+        "label": "Search",
+        "type": "textbox",
+        "current": {"value": "", "text": ""}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total lines (selected range)",
+      "gridPos": {"x": 0, "y": 1, "w": 4, "h": 5},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "sum(count_over_time({source=\"forensic\", host=~\"$host\", program=~\"$program\"} |~ \"(?i)$search\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Error+ count (selected range)",
+      "gridPos": {"x": 4, "y": 1, "w": 4, "h": 5},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 100}]},
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "sum(count_over_time({source=\"forensic\", host=~\"$host\", program=~\"$program\", severity=~\"error|critical|alert|emergency\"} |~ \"(?i)$search\" [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Rate by Severity",
+      "gridPos": {"x": 8, "y": 1, "w": 16, "h": 10},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 30, "stacking": {"mode": "normal", "group": "A"}, "showPoints": "never"},
+          "color": {"mode": "palette-classic"},
+          "unit": "logs"
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "emergency"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "dark-red"}}]},
+          {"matcher": {"id": "byName", "options": "alert"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+          {"matcher": {"id": "byName", "options": "critical"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
+          {"matcher": {"id": "byName", "options": "error"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
+          {"matcher": {"id": "byName", "options": "warning"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "super-light-yellow"}}]},
+          {"matcher": {"id": "byName", "options": "notice"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]},
+          {"matcher": {"id": "byName", "options": "informational"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "light-blue"}}]},
+          {"matcher": {"id": "byName", "options": "debug"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "gray"}}]}
+        ]
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "sum by (severity) (rate({source=\"forensic\", host=~\"$host\", program=~\"$program\"} |~ \"(?i)$search\" [$__interval]))",
+          "legendFormat": "{{severity}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Hosts active (selected range)",
+      "gridPos": {"x": 0, "y": 6, "w": 4, "h": 5},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}, "unit": "short"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "count(count by (host) (count_over_time({source=\"forensic\"} [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Programs active (selected range)",
+      "gridPos": {"x": 4, "y": 6, "w": 4, "h": 5},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}, "unit": "short"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "count(count by (program) (count_over_time({source=\"forensic\"} [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Per-Host & Per-Program",
+      "gridPos": {"x": 0, "y": 11, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Rate by Host",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 9},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10, "showPoints": "never"},
+          "color": {"mode": "palette-classic"},
+          "unit": "logs"
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum", "lastNotNull"]}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "sum by (host) (rate({source=\"forensic\", host=~\"$host\", program=~\"$program\"} |~ \"(?i)$search\" [$__interval]))",
+          "legendFormat": "{{host}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Top 20 Program (selected range)",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 9},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {"showHeader": true},
+      "transformations": [
+        {"id": "merge", "options": {}},
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"Value": "count"}}}
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto"}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "count"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background"}}, {"id": "color", "value": {"mode": "continuous-BlPu"}}]}
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "topk(20, sum by (host, program) (count_over_time({source=\"forensic\", host=~\"$host\", program=~\"$program\"} |~ \"(?i)$search\" [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Errors & Critical",
+      "gridPos": {"x": 0, "y": 21, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "logs",
+      "title": "Error+ Logs",
+      "gridPos": {"x": 0, "y": 22, "w": 24, "h": 10},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "{source=\"forensic\", host=~\"$host\", program=~\"$program\", severity=~\"error|critical|alert|emergency\"} |~ \"(?i)$search\""
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "All Logs (filtered)",
+      "gridPos": {"x": 0, "y": 32, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "logs",
+      "title": "Forensic Stream",
+      "gridPos": {"x": 0, "y": 33, "w": 24, "h": 14},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": false,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "{source=\"forensic\", host=~\"$host\", program=~\"$program\"} |~ \"(?i)$search\""
+        }
+      ]
+    }
+  ]
+}

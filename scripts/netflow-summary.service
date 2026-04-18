@@ -1,0 +1,19 @@
+[Unit]
+Description=NetFlow Top-N summary (push to Loki via Alloy)
+After=nfcapd.service
+Wants=nfcapd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/sbin/netflow-summary.py
+User=nfcapd
+Group=adm
+UMask=0027
+ReadOnlyPaths=/mnt/data/nfcapd
+ReadWritePaths=/var/log/netflow
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+LockPersonality=yes

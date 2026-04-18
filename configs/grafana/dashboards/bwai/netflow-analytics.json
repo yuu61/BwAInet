@@ -1,0 +1,297 @@
+{
+  "title": "BwAI NetFlow Analytics",
+  "uid": "bwai-netflow",
+  "tags": ["bwai", "netflow", "loki"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "annotations": {"list": []},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total Bytes (selected range)",
+      "gridPos": {"x": 0, "y": 1, "w": 6, "h": 5},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "sum(sum_over_time({source=\"netflow\", type=\"summary\"} | json | unwrap bytes [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Total Flows (selected range)",
+      "gridPos": {"x": 6, "y": 1, "w": 6, "h": 5},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "unit": "short"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "sum(sum_over_time({source=\"netflow\", type=\"summary\"} | json | unwrap flows [$__range]))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Avg bps (per 5min interval)",
+      "gridPos": {"x": 12, "y": 1, "w": 12, "h": 8},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 20, "showPoints": "auto"},
+          "color": {"mode": "palette-classic"},
+          "unit": "bps"
+        }
+      },
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "avg(avg_over_time({source=\"netflow\", type=\"summary\"} | json | unwrap avg_bps [$__interval]))",
+          "legendFormat": "avg_bps"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Bytes by Protocol (5m)",
+      "gridPos": {"x": 0, "y": 6, "w": 12, "h": 8},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 30, "stacking": {"mode": "normal", "group": "A"}, "showPoints": "never"},
+          "color": {"mode": "palette-classic"},
+          "unit": "bytes"
+        }
+      },
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "sum by (val) (sum_over_time({source=\"netflow\", type=\"top_proto\"} | json | unwrap bytes [$__interval]))",
+          "legendFormat": "{{val}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Top Talkers (last range)",
+      "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Top 20 Source IP by Bytes",
+      "gridPos": {"x": 0, "y": 15, "w": 12, "h": 10},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {"showHeader": true, "footer": {"reducer": ["sum"], "show": false}},
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"val": "src_ip", "Value": "bytes"}}}
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto"}, "unit": "bytes"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "src_ip"}, "properties": [{"id": "unit", "value": "string"}, {"id": "custom.width", "value": 240}]},
+          {"matcher": {"id": "byName", "options": "bytes"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-BlPu"}}]}
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "topk(20, sum by (val) (sum_over_time({source=\"netflow\", type=\"top_src_ip\"} | json | unwrap bytes [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Top 20 Destination IP by Bytes",
+      "gridPos": {"x": 12, "y": 15, "w": 12, "h": 10},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {"showHeader": true},
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"val": "dst_ip", "Value": "bytes"}}}
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto"}, "unit": "bytes"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "dst_ip"}, "properties": [{"id": "unit", "value": "string"}, {"id": "custom.width", "value": 240}]},
+          {"matcher": {"id": "byName", "options": "bytes"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-BlPu"}}]}
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "topk(20, sum by (val) (sum_over_time({source=\"netflow\", type=\"top_dst_ip\"} | json | unwrap bytes [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Top Ports",
+      "gridPos": {"x": 0, "y": 25, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Top 20 Source Port by Bytes",
+      "gridPos": {"x": 0, "y": 26, "w": 12, "h": 10},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {"showHeader": true},
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"val": "src_port", "Value": "bytes"}}}
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto"}, "unit": "bytes"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "src_port"}, "properties": [{"id": "unit", "value": "string"}]},
+          {"matcher": {"id": "byName", "options": "bytes"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-GrYlRd"}}]}
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "topk(20, sum by (val) (sum_over_time({source=\"netflow\", type=\"top_src_port\"} | json | unwrap bytes [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "table",
+      "title": "Top 20 Destination Port by Bytes",
+      "gridPos": {"x": 12, "y": 26, "w": 12, "h": 10},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {"showHeader": true},
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "renameByName": {"val": "dst_port", "Value": "bytes"}}}
+      ],
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto"}, "unit": "bytes"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "dst_port"}, "properties": [{"id": "unit", "value": "string"}]},
+          {"matcher": {"id": "byName", "options": "bytes"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "color", "value": {"mode": "continuous-GrYlRd"}}]}
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "topk(20, sum by (val) (sum_over_time({source=\"netflow\", type=\"top_dst_port\"} | json | unwrap bytes [$__range])))",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Top Conversations & Raw",
+      "gridPos": {"x": 0, "y": 36, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "logs",
+      "title": "Top Conversations (raw record)",
+      "gridPos": {"x": 0, "y": 37, "w": 12, "h": 12},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "showLabels": false,
+        "showTime": true,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "{source=\"netflow\", type=\"top_conv\"}"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "logs",
+      "title": "All NetFlow Summary Stream",
+      "gridPos": {"x": 12, "y": 37, "w": 12, "h": 12},
+      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "options": {
+        "showLabels": true,
+        "showTime": true,
+        "wrapLogMessage": false,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "expr": "{source=\"netflow\"}"
+        }
+      ]
+    }
+  ]
+}
