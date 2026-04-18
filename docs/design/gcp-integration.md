@@ -259,6 +259,15 @@ r2 には External IP が直接割り当て済 (Cloud NAT ではなく GCE 1:1 N
 - **コスト試算**: [`../investigation/gcp-cost-estimation.md`](../investigation/gcp-cost-estimation.md) (イベント期間 $15–40 程度)
 - **NG 時フォールバック**: GCP トラフィック最適化を無効化し、r2-gcp は BGP フォールバック + ログ転送のみに留める
 
+### 14. 過去インシデント
+
+- **2026-04-09 GCP DoS 検知 → 詳細**: [`docs/operations/incident-2026-04-09-gcp-dos-detection.md`](../operations/incident-2026-04-09-gcp-dos-detection.md)
+  - スピードテストによる egress バーストで Trust & Safety から警告
+  - 是正措置として r2-gcp の WireGuard egress を 500 Mbps に shaper で制限中 (本番当日に解除予定)
+  - 本番当日にインスタンスタイプを e2-micro → e2-standard-2 以上にアップグレード予定
+
+---
+
 ## その他の GCP 連携強化候補
 
 BigQuery ストリーミング、Cloud Monitoring 外部監視、リアルタイムダッシュボード、Gemini 自然言語クエリ等の検討候補は [`../investigation/gcp-future-enhancements.md`](../investigation/gcp-future-enhancements.md) を参照。
