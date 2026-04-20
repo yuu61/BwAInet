@@ -1,0 +1,25 @@
+[Unit]
+Description=NetFlow v9 collector for bw (%i)
+After=network.target
+
+[Service]
+Type=simple
+User=nfcapd
+Group=adm
+UMask=0027
+EnvironmentFile=/etc/default/nfcapd-bw-%i
+ExecStartPre=+/bin/install -d -o nfcapd -g adm -m 0750 /mnt/data/nfcapd-bw-%i
+ExecStart=/usr/bin/nfcapd -T all -t 300 -l /mnt/data/nfcapd-bw-%i -p ${PORT} -e
+Restart=on-failure
+RestartSec=5
+
+ProtectSystem=strict
+ReadWritePaths=/mnt/data
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run netflow-bw-summary every 5 minutes
+
+[Timer]
+OnCalendar=*:2/5:32
+AccuracySec=5s
+Persistent=true
+Unit=netflow-bw-summary.service
+
+[Install]
+WantedBy=timers.target

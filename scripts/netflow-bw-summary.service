@@ -1,0 +1,19 @@
+[Unit]
+Description=NetFlow bw (bandwidth by route/direction/version) summary to Loki
+After=nfcapd-bw@r1.service nfcapd-bw@r2.service
+Wants=nfcapd-bw@r1.service nfcapd-bw@r2.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/sbin/netflow-bw-summary.py
+User=nfcapd
+Group=adm
+UMask=0027
+ReadOnlyPaths=/mnt/data/nfcapd-bw-r1 /mnt/data/nfcapd-bw-r2
+ReadWritePaths=/var/log/netflow
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+LockPersonality=yes

@@ -11,8 +11,8 @@ r3-venue (VyOS) の task-scheduler から 1 分間隔で起動 (root 実行)。
 - CT 201 (192.168.11.6:3100) の Loki に HTTP push
 
 Loki ラベル (低 cardinality):
-  source=dhcpdns, host=<self>, type=kea_global|kea_subnet|recursor, interval=1m
-高 cardinality (subnet id, 個別 metric 値) は本文 JSON に含める。
+  source=dhcpdns, host=<self>, type=kea_global|kea_subnet|recursor|recursor_topq, interval=1m
+高 cardinality (subnet id, 個別 metric 値, qname) は本文 JSON に含める。
 """
 from __future__ import annotations
 
@@ -65,6 +65,8 @@ REC_GAUGES = [
     "cache-entries", "packetcache-entries",
     "concurrent-queries", "qa-latency", "uptime",
 ]
+
+REC_TOP_N = 25  # top-queries で push する上位件数
 
 
 # ---------- Kea ----------
@@ -173,6 +175,73 @@ def collect_recursor() -> dict[str, int]:
             except ValueError:
                 continue
     return result
+
+
+def collect_top_queries() -> tuple[list[dict], int, int]:
+    """rec_control top-queries の ring buffer から上位 N ドメインを取得。
+
+    pdns-recursor 5.x の出力形式 (本プロジェクトで実測):
+        Over last 10000 entries:
+        0.05%\thttp-inputs-notion.splunkcloud.com|A
+        0.05%\texample.com|AAAA
+        99.44%\tRest
+    qname と qtype は `|` 区切り。末尾 Rest 行は上位 N 以外の合計。
+
+    戻り値の pct は「Rest を除いた top N 内でのシェア」に正規化。
+    ring_total 全体に対する元の % は raw_pct に保持。
+    """
+    try:
+        proc = subprocess.run(
+            [RECTL, "top-queries"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except Exception as e:
+        sys.stderr.write(f"rec_control top-queries err: {e}\n")
+        return [], 0, 0
+    entries: list[dict] = []
+    ring_total = 0
+    rest_count = 0
+    for raw in proc.stdout.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.lower().startswith("over last"):
+            for token in line.split():
+                if token.isdigit():
+                    ring_total = int(token)
+                    break
+            continue
+        parts = line.split("\t") if "\t" in line else line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        try:
+            raw_pct = float(parts[0].rstrip("%"))
+        except ValueError:
+            continue
+        tail = "\t".join(parts[1:]).strip()
+        if tail.lower() == "rest":
+            rest_count = int(round(raw_pct * ring_total / 100)) if ring_total else 0
+            continue
+        if "|" in tail:
+            qname, _, qtype = tail.rpartition("|")
+            qname = qname.split("\t")[0].split()[0]
+            qtype = qtype.strip()
+        else:
+            tok = tail.split()
+            qname = tok[0] if tok else ""
+            qtype = tok[-1] if len(tok) > 1 else "?"
+        qname = qname.rstrip(".") or "."
+        count = int(round(raw_pct * ring_total / 100)) if ring_total else 0
+        entries.append({
+            "qname": qname, "qtype": qtype,
+            "raw_pct": raw_pct, "count": count,
+        })
+        if len(entries) >= REC_TOP_N:
+            break
+    top_sum = sum(e["count"] for e in entries)
+    for e in entries:
+        e["pct"] = round(100 * e["count"] / top_sum, 2) if top_sum else 0.0
+    return entries, ring_total, rest_count
 
 
 # ---------- 状態保存 ----------
@@ -329,6 +398,25 @@ def main() -> int:
         streams.append({
             "stream": {**base_labels, "type": "recursor"},
             "values": [[ts_ns, json.dumps(rec_r, ensure_ascii=False, separators=(",", ":"))]],
+        })
+
+    top_q, ring_total, rest_count = collect_top_queries()
+    if top_q:
+        base_ns = int(now.timestamp() * 1_000_000_000)
+        values = []
+        for i, entry in enumerate(top_q):
+            rec_q = {
+                "ts": ts, "type": "recursor_topq", "rank": i + 1,
+                "ring_total": ring_total, "rest_count": rest_count,
+                **entry,
+            }
+            values.append([
+                str(base_ns + i),
+                json.dumps(rec_q, ensure_ascii=False, separators=(",", ":")),
+            ])
+        streams.append({
+            "stream": {**base_labels, "type": "recursor_topq"},
+            "values": values,
         })
 
     push_to_loki(streams)

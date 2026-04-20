@@ -214,6 +214,8 @@ WireGuard トンネル上の TCP で MTU 超過による断片化を防止。PMT
 
 ## 9. Flow Accounting (NetFlow v9)
 
+### 9.1 forensic 用 (pmacctd, port 2055)
+
 VLAN 30/40 + wg0 + wg1 の 5-tuple を記録し、法執行機関対応に備える。VLAN 11 (mgmt) は対象外。
 
 - 送信先: local-server CT (192.168.11.2:2055)
@@ -223,6 +225,21 @@ VLAN 30/40 + wg0 + wg1 の 5-tuple を記録し、法執行機関対応に備え
 > **VyOS 2026.03 パス注意**: `system flow-accounting interface` は廃止され、**`system flow-accounting netflow interface`** に移動。`source-ip` は CLI 上存在しない (egress interface の IP が自動使用される)。投入例は [`../configs/r3-venue.conf`](../configs/r3-venue.conf)。
 
 詳細は [`logging-compliance.md`](logging-compliance.md) §6 参照。
+
+### 9.2 帯域分析用 (softflowd, port 2056/2057)
+
+Grafana「BwAI NetFlow Analytics」の Bandwidth パネル (route × up/down × IPv4/IPv6) 用に、pmacctd とは**独立した softflowd 系統**を併設する。pmacctd は `out_if` を埋めない制約があり、Upload フローを wg0/wg1 の経路で分類できないため。
+
+- r3 上で wg0/wg1 ごとに 1 プロセスずつ稼働 (instanced systemd `softflowd-bw@wg0` / `@wg1`)
+- 送信先: 192.168.11.2:2056 (wg0 = r1 経路) / 2057 (wg1 = r2 経路) に分離
+- 受信側: local-server の `nfcapd-bw@r1` / `@r2` が別ディレクトリ `/mnt/data/nfcapd-bw-{r1,r2}/` に格納
+- 集計: `netflow-bw-summary.py` が両ディレクトリから sa/da を読み、venue 内部プレフィックス (RFC1918 + OPTAGE/GCP /64 + ULA) で direction 判定 → Loki に `{source="netflow", type="bw"}` で push
+
+**VyOS rolling image 耐性**: `/usr/sbin/softflowd` と `/etc/systemd/system/softflowd-bw@.service` は image 更新で消失する。資材を `/config/scripts/softflowd-bw/` に永続化し、`/config/scripts/vyos-postconfig-bootup.script` が起動ごとに `bootstrap.sh` を呼んで再投入する。
+
+- デプロイスクリプト: [`../../scripts/r3-venue/softflowd-bw/`](../../scripts/r3-venue/softflowd-bw/)
+- 受信側 unit: [`../../scripts/local-server/nfcapd-bw@.service`](../../scripts/local-server/nfcapd-bw@.service)
+- 集計: [`../../scripts/netflow-bw-summary.py`](../../scripts/netflow-bw-summary.py)
 
 ## 10. Syslog
 
