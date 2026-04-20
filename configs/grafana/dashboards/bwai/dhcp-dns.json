@@ -1,602 +1,2318 @@
 {
-  "title": "BwAI DHCP / DNS",
-  "uid": "bwai-dhcpdns",
-  "tags": ["bwai", "dhcp", "dns", "kea", "pdns-recursor", "loki"],
-  "schemaVersion": 39,
-  "version": 1,
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
   "editable": true,
+  "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "timezone": "browser",
-  "refresh": "1m",
-  "time": {"from": "now-3h", "to": "now"},
-  "timepicker": {},
-  "annotations": {"list": []},
-  "templating": {"list": []},
+  "liveNow": false,
   "panels": [
     {
-      "id": 1,
-      "type": "row",
-      "title": "DHCP Pool",
-      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
       "collapsed": false,
-      "panels": []
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 53,
+      "title": "DHCP Pool",
+      "type": "row"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
       "id": 2,
-      "type": "stat",
-      "title": "Active Leases (total)",
-      "gridPos": {"x": 0, "y": 1, "w": 4, "h": 5},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
       "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
         "colorMode": "value",
         "graphMode": "area",
-        "textMode": "auto"
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(MGMT|STAFF|USER)$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.0.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "max by (subnet_name) (last_over_time({source=\"dhcpdns\", type=\"kea_subnet\"} | json | unwrap active_leases [5m]))",
+          "legendFormat": "{{subnet_name}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Leases by Pool",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
-          "unit": "short"
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "orange",
+                "value": 85
+              },
+              {
+                "color": "red",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent"
         }
       },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-          "expr": "sum(max by (subnet_name) (last_over_time({source=\"dhcpdns\", type=\"kea_subnet\"} | json | unwrap active_leases [5m])))",
-          "queryType": "instant"
-        }
-      ]
-    },
-    {
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
       "id": 3,
-      "type": "bargauge",
-      "title": "Pool Usage (%)",
-      "gridPos": {"x": 4, "y": 1, "w": 10, "h": 5},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
       "options": {
         "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
         "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(MGMT|STAFF|USER)$/",
+          "values": false
+        },
         "showUnfilled": true,
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": false}
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "13.0.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "max by (subnet_name) (last_over_time({source=\"dhcpdns\", type=\"kea_subnet\"} | json | unwrap usage_pct [5m]))",
+          "legendFormat": "{{subnet_name}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Pool Usage (%)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "green", "value": null},
-            {"color": "yellow", "value": 70},
-            {"color": "orange", "value": 85},
-            {"color": "red", "value": 95}
-          ]},
-          "unit": "percent",
-          "min": 0,
-          "max": 100
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-          "expr": "max by (subnet_name) (last_over_time({source=\"dhcpdns\", type=\"kea_subnet\"} | json | unwrap usage_pct [5m]))",
-          "queryType": "range",
-          "legendFormat": "{{subnet_name}}"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "type": "table",
-      "title": "Pool Detail",
-      "gridPos": {"x": 14, "y": 1, "w": 10, "h": 5},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "options": {"showHeader": true},
-      "transformations": [
-        {"id": "extractFields", "options": {"source": "Line", "format": "json", "replace": true}},
-        {"id": "groupBy", "options": {"fields": {
-          "subnet_name": {"operation": "groupby"},
-          "subnet_id": {"operation": "aggregate", "aggregations": ["last"]},
-          "active_leases": {"operation": "aggregate", "aggregations": ["last"]},
-          "total_addresses": {"operation": "aggregate", "aggregations": ["last"]},
-          "usage_pct": {"operation": "aggregate", "aggregations": ["last"]}
-        }}},
-        {"id": "organize", "options": {
-          "renameByName": {
-            "subnet_name": "pool",
-            "subnet_id (last)": "id",
-            "active_leases (last)": "active",
-            "total_addresses (last)": "total",
-            "usage_pct (last)": "usage_pct"
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
           },
-          "indexByName": {"subnet_name": 0, "subnet_id (last)": 1, "active_leases (last)": 2, "total_addresses (last)": 3, "usage_pct (last)": 4}
-        }}
-      ],
-      "fieldConfig": {
-        "defaults": {"custom": {"align": "auto"}, "unit": "short"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "usage_pct"}, "properties": [
-            {"id": "unit", "value": "percent"},
-            {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}},
-            {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 70},
-              {"color": "red", "value": 90}
-            ]}}
-          ]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "usage_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         ]
       },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "{source=\"dhcpdns\", type=\"kea_subnet\"} | json",
+          "maxLines": 50,
           "queryType": "range",
-          "maxLines": 50
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Pool Detail",
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "format": "json",
+            "replace": true,
+            "source": "Line"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "active_leases": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "subnet_id": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "subnet_name": {
+                "operation": "groupby"
+              },
+              "total_addresses": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "usage_pct": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "active_leases (last)": 2,
+              "subnet_id (last)": 1,
+              "subnet_name": 0,
+              "total_addresses (last)": 3,
+              "usage_pct (last)": 4
+            },
+            "renameByName": {
+              "active_leases (last)": "active",
+              "subnet_id (last)": "id",
+              "subnet_name": "pool",
+              "total_addresses (last)": "total",
+              "usage_pct (last)": "usage_pct"
+            }
+          }
+        }
+      ],
+      "type": "table"
     },
     {
-      "id": 10,
-      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 54,
       "title": "DHCP Events (時間ごとリース取得)",
-      "gridPos": {"x": 0, "y": 6, "w": 24, "h": 1},
-      "collapsed": false,
-      "panels": []
+      "type": "row"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
       "id": 11,
-      "type": "timeseries",
-      "title": "Active Leases by Pool (時系列)",
-      "gridPos": {"x": 0, "y": 7, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "fieldConfig": {
-        "defaults": {
-          "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 30, "stacking": {"mode": "normal", "group": "A"}, "showPoints": "never"},
-          "color": {"mode": "palette-classic"},
-          "unit": "short"
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["last", "max"]}},
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "max by (subnet_name) (last_over_time({source=\"dhcpdns\", type=\"kea_subnet\"} | json | unwrap active_leases [1m]))",
-          "legendFormat": "{{subnet_name}}"
+          "legendFormat": "{{subnet_name}}",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Active Leases by Pool (時系列)",
+      "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
       "id": 12,
-      "type": "timeseries",
-      "title": "DHCP Packet Rate (events/min)",
-      "gridPos": {"x": 12, "y": 7, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "fieldConfig": {
-        "defaults": {
-          "custom": {"drawStyle": "bars", "lineInterpolation": "linear", "fillOpacity": 70, "barAlignment": 0, "showPoints": "never"},
-          "color": {"mode": "palette-classic"},
-          "unit": "short"
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}},
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"kea_global\"} | json | unwrap pkt4_discover_received_delta [$__interval]))",
-          "legendFormat": "DISCOVER"
+          "legendFormat": "DISCOVER",
+          "refId": "A"
         },
         {
-          "refId": "B",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"kea_global\"} | json | unwrap pkt4_offer_sent_delta [$__interval]))",
-          "legendFormat": "OFFER"
+          "legendFormat": "OFFER",
+          "refId": "B"
         },
         {
-          "refId": "C",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"kea_global\"} | json | unwrap pkt4_request_received_delta [$__interval]))",
-          "legendFormat": "REQUEST"
+          "legendFormat": "REQUEST",
+          "refId": "C"
         },
         {
-          "refId": "D",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"kea_global\"} | json | unwrap pkt4_ack_sent_delta [$__interval]))",
-          "legendFormat": "ACK"
+          "legendFormat": "ACK",
+          "refId": "D"
         },
         {
-          "refId": "E",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"kea_global\"} | json | unwrap pkt4_release_received_delta [$__interval]))",
-          "legendFormat": "RELEASE"
+          "legendFormat": "RELEASE",
+          "refId": "E"
         },
         {
-          "refId": "F",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"kea_global\"} | json | unwrap pkt4_decline_received_delta [$__interval]))",
-          "legendFormat": "DECLINE"
+          "legendFormat": "DECLINE",
+          "refId": "F"
         }
-      ]
+      ],
+      "title": "DHCP Packet Rate (events/min)",
+      "type": "timeseries"
     },
     {
-      "id": 20,
-      "type": "row",
-      "title": "DNS Cache",
-      "gridPos": {"x": 0, "y": 15, "w": 24, "h": 1},
       "collapsed": false,
-      "panels": []
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 55,
+      "title": "DNS Cache",
+      "type": "row"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 16
+      },
       "id": 21,
-      "type": "stat",
-      "title": "Cache Entries",
-      "gridPos": {"x": 0, "y": 16, "w": 5, "h": 5},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
       "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "value", "graphMode": "area", "textMode": "auto"
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
-          "unit": "short"
-        }
-      },
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap cache_entries [5m])",
-          "queryType": "instant"
+          "queryType": "instant",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Cache Entries",
+      "type": "stat"
     },
     {
-      "id": 22,
-      "type": "stat",
-      "title": "Packet-Cache Entries",
-      "gridPos": {"x": 5, "y": 16, "w": 5, "h": 5},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "value", "graphMode": "area", "textMode": "auto"
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": 0
+              }
+            ]
+          },
           "unit": "short"
         }
       },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 16
+      },
+      "id": 22,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap packetcache_entries [5m])",
-          "queryType": "instant"
+          "queryType": "instant",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Packet-Cache Entries",
+      "type": "stat"
     },
     {
-      "id": 23,
-      "type": "gauge",
-      "title": "Cache Hit Ratio (1m)",
-      "gridPos": {"x": 10, "y": 16, "w": 7, "h": 5},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
       },
+      "description": "(cache_hits + packetcache_hits) / questions。packet-cache と recursor-cache の両層を合算した真のヒット率。",
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "red", "value": null},
-            {"color": "orange", "value": 0.5},
-            {"color": "yellow", "value": 0.7},
-            {"color": "green", "value": 0.85}
-          ]},
-          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "max": 1,
           "min": 0,
-          "max": 1
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "green",
+                "value": 0.85
+              }
+            ]
+          },
+          "unit": "percentunit"
         }
       },
+      "gridPos": {
+        "h": 5,
+        "w": 7,
+        "x": 10,
+        "y": 16
+      },
+      "id": 23,
+      "options": {
+        "barShape": "flat",
+        "barWidthFactor": 0.5,
+        "effects": {
+          "barGlow": false,
+          "centerGlow": false,
+          "gradient": true
+        },
+        "endpointMarker": "point",
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "segmentCount": 1,
+        "segmentSpacing": 0.3,
+        "shape": "gauge",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto",
+        "sparkline": true,
+        "textMode": "auto"
+      },
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-          "expr": "last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap cache_hit_ratio [5m])",
-          "queryType": "instant"
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "(sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap cache_hits_delta [15m])) + sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap packetcache_hits_delta [15m]))) / sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap questions_delta [15m]))",
+          "queryType": "instant",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Cache Hit Ratio (total, 15m)",
+      "type": "gauge"
     },
     {
-      "id": 24,
-      "type": "stat",
-      "title": "Avg Q/A Latency (μs)",
-      "gridPos": {"x": 17, "y": 16, "w": 7, "h": 5},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-        "colorMode": "value", "graphMode": "area", "textMode": "auto"
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
       },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "green", "value": null},
-            {"color": "yellow", "value": 50000},
-            {"color": "red", "value": 200000}
-          ]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 50000
+              },
+              {
+                "color": "red",
+                "value": 200000
+              }
+            ]
+          },
           "unit": "µs"
         }
       },
+      "gridPos": {
+        "h": 5,
+        "w": 7,
+        "x": 17,
+        "y": 16
+      },
+      "id": 24,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap qa_latency [5m])",
-          "queryType": "instant"
+          "queryType": "instant",
+          "refId": "A"
         }
-      ]
+      ],
+      "title": "Avg Query/Answer Latency",
+      "type": "stat"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
       "id": 25,
-      "type": "timeseries",
-      "title": "Cache Entries (時系列)",
-      "gridPos": {"x": 0, "y": 21, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "fieldConfig": {
-        "defaults": {
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 25, "showPoints": "never"},
-          "color": {"mode": "palette-classic"},
-          "unit": "short"
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["last", "max"]}},
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
           "expr": "max(last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap cache_entries [$__interval]))",
-          "legendFormat": "cache-entries"
+          "legendFormat": "cache-entries",
+          "queryType": "range",
+          "refId": "A"
         },
         {
-          "refId": "B",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
           "expr": "max(last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap packetcache_entries [$__interval]))",
-          "legendFormat": "packetcache-entries"
+          "legendFormat": "packetcache-entries",
+          "queryType": "range",
+          "refId": "B"
         }
-      ]
+      ],
+      "title": "Cache Entries (時系列)",
+      "type": "timeseries"
     },
     {
-      "id": 26,
-      "type": "timeseries",
-      "title": "Cache Hit / Miss (events/min)",
-      "gridPos": {"x": 12, "y": 21, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal", "group": "A"}, "showPoints": "never"},
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hit-ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "hit ratio"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "id": 26,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [
+            "sum",
+            "mean",
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["sum"]}},
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap cache_hits_delta [$__interval]))",
-          "legendFormat": "cache-hits"
+          "legendFormat": "cache-hits",
+          "queryType": "range",
+          "refId": "A"
         },
         {
-          "refId": "B",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap cache_misses_delta [$__interval]))",
-          "legendFormat": "cache-misses"
+          "legendFormat": "cache-misses",
+          "queryType": "range",
+          "refId": "B"
         },
         {
-          "refId": "C",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap packetcache_hits_delta [$__interval]))",
-          "legendFormat": "pktcache-hits"
+          "legendFormat": "pktcache-hits",
+          "queryType": "range",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "(sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap cache_hits_delta [$__interval])) + sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap packetcache_hits_delta [$__interval]))) / sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap questions_delta [$__interval]))",
+          "legendFormat": "hit-ratio",
+          "queryType": "range",
+          "refId": "D"
         }
-      ]
+      ],
+      "title": "Cache Hit / Miss (events/min) + Hit Ratio",
+      "type": "timeseries"
     },
     {
-      "id": 30,
-      "type": "row",
-      "title": "DNS QPS / Answers",
-      "gridPos": {"x": 0, "y": 29, "w": 24, "h": 1},
       "collapsed": false,
-      "panels": []
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 56,
+      "title": "DNS QPS / Answers",
+      "type": "row"
     },
     {
-      "id": 31,
-      "type": "timeseries",
-      "title": "QPS (questions / second)",
-      "gridPos": {"x": 0, "y": 30, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 25, "showPoints": "never"},
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "qps"
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "id": 31,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap questions_delta [1m])) / 60",
-          "legendFormat": "questions"
+          "legendFormat": "questions",
+          "refId": "A"
         },
         {
-          "refId": "B",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap all_outqueries_delta [1m])) / 60",
-          "legendFormat": "outqueries"
+          "legendFormat": "outqueries",
+          "refId": "B"
         },
         {
-          "refId": "C",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap tcp_questions_delta [1m])) / 60",
-          "legendFormat": "tcp"
+          "legendFormat": "tcp",
+          "refId": "C"
         },
         {
-          "refId": "D",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap ipv6_questions_delta [1m])) / 60",
-          "legendFormat": "ipv6"
+          "legendFormat": "ipv6",
+          "refId": "D"
         }
-      ]
+      ],
+      "title": "QPS (questions / second)",
+      "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "noerror"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "nxdomain"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "servfail"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
       "id": 32,
-      "type": "timeseries",
-      "title": "Answers by RCODE (events/min)",
-      "gridPos": {"x": 12, "y": 30, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-      "fieldConfig": {
-        "defaults": {
-          "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal", "group": "A"}, "showPoints": "never"},
-          "unit": "short"
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
         },
-        "overrides": [
-          {"matcher": {"id": "byName", "options": "noerror"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
-          {"matcher": {"id": "byName", "options": "nxdomain"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
-          {"matcher": {"id": "byName", "options": "servfail"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
-        ]
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["sum"]}},
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap noerror_answers_delta [$__interval]))",
-          "legendFormat": "noerror"
+          "legendFormat": "noerror",
+          "refId": "A"
         },
         {
-          "refId": "B",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap nxdomain_answers_delta [$__interval]))",
-          "legendFormat": "nxdomain"
+          "legendFormat": "nxdomain",
+          "refId": "B"
         },
         {
-          "refId": "C",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap servfail_answers_delta [$__interval]))",
-          "legendFormat": "servfail"
+          "legendFormat": "servfail",
+          "refId": "C"
         }
-      ]
+      ],
+      "title": "Answers by RCODE (events/min)",
+      "type": "timeseries"
     },
     {
-      "id": 33,
-      "type": "timeseries",
-      "title": "Answer Latency Distribution (events/min)",
-      "gridPos": {"x": 0, "y": 38, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal", "group": "A"}, "showPoints": "never"},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": [
-          {"matcher": {"id": "byName", "options": "0-1ms"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
-          {"matcher": {"id": "byName", "options": "1-10ms"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]},
-          {"matcher": {"id": "byName", "options": "10-100ms"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
-          {"matcher": {"id": "byName", "options": "100-1000ms"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
-          {"matcher": {"id": "byName", "options": "slow (>1s)"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "0-1ms"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "1-10ms"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "10-100ms"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "100-1000ms"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "slow (>1s)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["sum"]}},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "id": 33,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.1",
       "targets": [
-        {"refId": "A", "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}, "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers0_1_delta [$__interval]))", "legendFormat": "0-1ms"},
-        {"refId": "B", "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}, "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers1_10_delta [$__interval]))", "legendFormat": "1-10ms"},
-        {"refId": "C", "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}, "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers10_100_delta [$__interval]))", "legendFormat": "10-100ms"},
-        {"refId": "D", "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}, "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers100_1000_delta [$__interval]))", "legendFormat": "100-1000ms"},
-        {"refId": "E", "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}, "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers_slow_delta [$__interval]))", "legendFormat": "slow (>1s)"}
-      ]
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers0_1_delta [$__interval]))",
+          "legendFormat": "0-1ms",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers1_10_delta [$__interval]))",
+          "legendFormat": "1-10ms",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers10_100_delta [$__interval]))",
+          "legendFormat": "10-100ms",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers100_1000_delta [$__interval]))",
+          "legendFormat": "100-1000ms",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap answers_slow_delta [$__interval]))",
+          "legendFormat": "slow (>1s)",
+          "refId": "E"
+        }
+      ],
+      "title": "Answer Latency Distribution (events/min)",
+      "type": "timeseries"
     },
     {
-      "id": 34,
-      "type": "timeseries",
-      "title": "Recursor Concurrent Queries / Outgoing Timeouts",
-      "gridPos": {"x": 12, "y": 38, "w": 12, "h": 8},
-      "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
       "fieldConfig": {
         "defaults": {
-          "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 20, "showPoints": "never"},
-          "color": {"mode": "palette-classic"},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineStyle": {
+              "fill": "solid"
+            },
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
           "unit": "short"
         }
       },
-      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["last", "max"]}},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "id": 34,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [
+            "last",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.1",
       "targets": [
         {
-          "refId": "A",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-          "expr": "last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap concurrent_queries [$__interval])",
-          "legendFormat": "concurrent"
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "max(last_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap concurrent_queries [$__interval]))",
+          "legendFormat": "concurrent",
+          "queryType": "range",
+          "refId": "A"
         },
         {
-          "refId": "B",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap outgoing_timeouts_delta [$__interval]))",
-          "legendFormat": "timeouts"
+          "legendFormat": "timeouts",
+          "queryType": "range",
+          "refId": "B"
         },
         {
-          "refId": "C",
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
           "expr": "sum(sum_over_time({source=\"dhcpdns\", type=\"recursor\"} | json | unwrap throttled_outqueries_delta [$__interval]))",
-          "legendFormat": "throttled"
+          "legendFormat": "throttled",
+          "queryType": "range",
+          "refId": "C"
         }
-      ]
+      ],
+      "title": "Recursor Concurrent Queries / Outgoing Timeouts",
+      "type": "timeseries"
     },
     {
-      "id": 40,
-      "type": "row",
-      "title": "Raw Streams",
-      "gridPos": {"x": 0, "y": 46, "w": 24, "h": 1},
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "id": 57,
+      "title": "Top Queried Domains",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "description": "pct は top 20 内シェア (Rest 除外母数、合計 = 100%)。raw_pct が ring buffer 全体に対する %。rec_control top-queries 最新バッチ。",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 5
+                    },
+                    {
+                      "color": "orange",
+                      "value": 15
+                    },
+                    {
+                      "color": "red",
+                      "value": 30
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "raw_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "domain"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "type"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "id": 51,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "pct"
+          }
+        ]
+      },
+      "pluginVersion": "13.0.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "{source=\"dhcpdns\", type=\"recursor_topq\"} | json | qname != `rest`",
+          "maxLines": 25,
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Domains (直近スナップショット)",
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "format": "json",
+            "replace": true,
+            "source": "Line"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "count": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "pct": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "qname": {
+                "operation": "groupby"
+              },
+              "qtype": {
+                "operation": "groupby"
+              },
+              "raw_pct": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "ring_total": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "count (last)": 4,
+              "pct (last)": 2,
+              "qname": 0,
+              "qtype": 1,
+              "raw_pct (last)": 3,
+              "ring_total (last)": 5
+            },
+            "renameByName": {
+              "count (last)": "count",
+              "pct (last)": "pct",
+              "qname": "domain",
+              "qtype": "type",
+              "raw_pct (last)": "raw_pct",
+              "ring_total (last)": "ring_size"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "desc": true,
+                "field": "pct"
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 20
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "P8E80F9AEF21F6940"
+      },
+      "description": "pct は top 20 内シェア (ring buffer の Rest を母数から除外、上位合計 = 100%)。最新 2 分内の値を使用。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "decimals": 2,
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "id": 52,
+      "options": {
+        "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "13.0.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "expr": "topk(10, max by (qname) (last_over_time({source=\"dhcpdns\", type=\"recursor_topq\"} | json | qname != `rest` | unwrap pct [2m])))",
+          "legendFormat": "{{qname}}",
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
+      "title": "Top 10 Domains (直近スナップショット %)",
+      "type": "bargauge"
+    },
+    {
       "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
+      "id": 58,
       "panels": [
         {
-          "id": 41,
-          "type": "logs",
-          "title": "Recursor Stream",
-          "gridPos": {"x": 0, "y": 47, "w": 12, "h": 10},
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-          "options": {
-            "showLabels": false, "showTime": true, "wrapLogMessage": false,
-            "prettifyLogMessage": true, "enableLogDetails": true,
-            "sortOrder": "Descending", "dedupStrategy": "none"
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
           },
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 0,
+            "y": 58
+          },
+          "id": 41,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": true,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "",
           "targets": [
-            {"refId": "A", "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}, "expr": "{source=\"dhcpdns\", type=\"recursor\"}"}
-          ]
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "P8E80F9AEF21F6940"
+              },
+              "expr": "{source=\"dhcpdns\", type=\"recursor\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Recursor Stream",
+          "type": "logs"
         },
         {
-          "id": 42,
-          "type": "logs",
-          "title": "Kea Global Stream",
-          "gridPos": {"x": 12, "y": 47, "w": 12, "h": 10},
-          "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"},
-          "options": {
-            "showLabels": false, "showTime": true, "wrapLogMessage": false,
-            "prettifyLogMessage": true, "enableLogDetails": true,
-            "sortOrder": "Descending", "dedupStrategy": "none"
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
           },
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 12,
+            "y": 58
+          },
+          "id": 42,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": true,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "",
           "targets": [
-            {"refId": "A", "datasource": {"type": "loki", "uid": "P8E80F9AEF21F6940"}, "expr": "{source=\"dhcpdns\", type=\"kea_global\"}"}
-          ]
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "P8E80F9AEF21F6940"
+              },
+              "expr": "{source=\"dhcpdns\", type=\"kea_global\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Kea Global Stream",
+          "type": "logs"
         }
-      ]
+      ],
+      "title": "Raw Streams",
+      "type": "row"
     }
-  ]
+  ],
+  "preload": false,
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "bwai",
+    "dhcp",
+    "dns",
+    "kea",
+    "pdns-recursor",
+    "loki"
+  ],
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "BwAI DHCP / DNS",
+  "uid": "bwai-dhcpdns",
+  "version": 43
 }
