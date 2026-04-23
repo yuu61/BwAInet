@@ -16,26 +16,16 @@ ethtool -G eth0 rx 4096 tx 4096
 ethtool -G eth3 rx 4096 tx 4096
 ethtool -G eth4 rx 4096 tx 4096
 
-# pppoe0 cake qdisc (バッファブロート対策)
-# pppoe0 が起動するまで待機
+# X710 firmware LLDP を無効化（LACP 阻害回避、副作用なし）
+ethtool --set-priv-flags eth1 disable-fw-lldp on
+
+# pppoe0 起動を待って DHCPv6-PD 由来の会場向け /64 ルートを補正
 for i in $(seq 1 30); do
   ip link show pppoe0 >/dev/null 2>&1 && break
   sleep 2
 done
 
 if ip link show pppoe0 >/dev/null 2>&1; then
-  # Upload: pppoe0 egress に cake 適用
-  tc qdisc replace dev pppoe0 root cake bandwidth 2400mbit overhead 8 mpu 64 nat wash diffserv4
-
-  # Download: IFB + cake で ingress シェーピング
-  modprobe ifb
-  ip link add name ifb0 type ifb 2>/dev/null
-  ip link set ifb0 up
-  tc qdisc add dev pppoe0 handle ffff: ingress 2>/dev/null || tc qdisc replace dev pppoe0 handle ffff: ingress
-  tc filter add dev pppoe0 parent ffff: protocol all u32 match u32 0 0 action mirred egress redirect dev ifb0
-  tc qdisc replace dev ifb0 root cake bandwidth 950mbit overhead 8 mpu 64 wash ingress diffserv4
-
-  # DHCPv6-PD 由来の会場向け /64 ルートを boot 後に一度補正する
   if [ -x /config/scripts/pd-update-venue.sh ]; then
     /config/scripts/pd-update-venue.sh
   fi
