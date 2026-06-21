@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "uptime-kuma"
+    static_configs:
+      - targets:
+          - "172.17.0.1:3001"
+    basic_auth:
+      username: "YOUR_USERNAME"
+      password: "YOUR_PASSWORD"
