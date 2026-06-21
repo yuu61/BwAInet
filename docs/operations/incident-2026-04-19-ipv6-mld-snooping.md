@@ -65,13 +65,15 @@ OPTAGE GUA が早期に deprecated になり、クライアントは GCP 経由 
 | 09:30 | 全プレフィックスに `preferred-lifetime 0 / valid-lifetime 0` を設定して RA 送出。tcpdump で `valid time 0s, pref. time 0s` を確認 |
 | 09:33 | r3 設定をディスクに保存 (save) |
 
-## 残課題
+## 申し送り (記録)
 
-- **(コマンド確定済み・恒久対応)** IOS 15 系および Allied Telesis スイッチで `no ipv6 mld snooping` を投入し、不完全な snooping 実装による drop を解消する。コマンド構文・既定値・判断指針は [`mld-snooping-rfc4541-compliance.md`](./mld-snooping-rfc4541-compliance.md) に確定 (IOS 15.2 / IOS XE 16.12 / 17.x で同一構文を裏取り済み)。残: 対象スイッチの機種・管理 IP の確定。**IOS XE 16.12 は盲目投入せず、`show ipv6 mld snooping` + access port v6 テストで要否を判定してから投入する** (Cisco ドキュメント上 16.12 は 17.x と同一記述で、17.15 の疎通は実測値であり準拠保証ではないため)。「全機停止」ではなく **準拠機は ON のまま・非準拠機だけ OFF** が方針。
-- **(必須)** 暫定対応 (lifetime 0) を解除するタイミングと手順を決定。スイッチ側修正完了後に `delete service router-advert interface eth2.{30,40} prefix ... preferred-lifetime / valid-lifetime` で戻す。
-- **(要確認)** `pd-update-venue.sh` (r1 task-scheduler 1分間隔) が r3 の RA 設定を再度書き換え、preferred-lifetime を 1800s に戻していないか。スクリプトの該当箇所を確認・修正する。
-- **(再発防止)** v4/v6 比率を Grafana で常時可視化し、異常を NetFlow 解析を待たずに検知できるようにする。
-- **(調査)** NetFlow が r3 上の eth2.30/40/wg0/wg1 4 IF からエクスポートされており同一パケットが複数回カウントされる問題。本件の比率分析には影響しないが、今後の流量集計のため exporter 設計を見直すべき。
+> 恒久対応の方針と残対応の状態の記録。完了・方針確定済みの項目を含む。
+
+- **恒久対応 (方針確定済み)**: IOS 15 系・古い Allied Telesis スイッチは `no ipv6 mld snooping` で不完全な snooping 実装による drop を解消する。コマンド構文・既定値・判断指針は [`mld-snooping-rfc4541-compliance.md`](./mld-snooping-rfc4541-compliance.md) に確定済み (IOS 15.2 / IOS XE 16.12 / 17.x で同一構文を裏取り)。方針は「全機停止」ではなく **準拠機は ON のまま・非準拠機だけ OFF**。未確定なのは対象スイッチの機種・管理 IP のみ。IOS XE 16.12 は盲目投入せず `show ipv6 mld snooping` + access port v6 テストで要否を判定する想定 (Cisco ドキュメント上 16.12 は 17.x と同一記述で、17.15 の疎通は実測値であり準拠保証ではないため)。
+- **暫定対応 (lifetime 0) は未解除**: 現在も全プレフィックスを valid/preferred-lifetime 0 で広告中 = 会場の IPv6 GUA は実質停止状態。解除はスイッチ側修正完了後に `delete service router-advert interface eth2.{30,40} prefix ... preferred-lifetime / valid-lifetime` で戻す想定。
+- **既知の懸念**: `pd-update-venue.sh` (r1 task-scheduler 1分間隔) が r3 の RA 設定を上書きし preferred-lifetime を 1800s に戻し得る (未確認)。該当箇所は要精査。
+- **(再発防止)** v4/v6 比率を Grafana で常時可視化し、NetFlow 解析を待たず異常検知できる状態が望ましい。
+- **(調査)** NetFlow が r3 上の eth2.30/40/wg0/wg1 4 IF からエクスポートされ同一パケットが複数回カウントされる。本件の比率分析には影響しないが、流量集計の正確性のため exporter 設計の見直し余地がある。
 
 ## 学び
 

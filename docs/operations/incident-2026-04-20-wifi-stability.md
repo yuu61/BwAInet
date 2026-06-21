@@ -70,16 +70,13 @@
 | 05:30 頃 / 14:30 | 16 階 AP 調査で `show ap inventory all` から AP 世代混在を確認、WPA3 非対応 AP を特定 |
 | 06:00 頃 / 15:00 | WLAN 1/2 の security が既に WPA2 PSK only (SAE disabled、PMF Optional、FT Adaptive) であることを確認。PC 側プロファイル残存が主要因と判定 |
 
-## 残課題
+## 申し送り (記録)
 
-- **(必須) ap-161-1 (`a4:6c:2a:3c:29:84`、192.168.11.28) 復旧** — 16 階に物理確認に行き、PoE LED、LAN リンク LED、ケーブル接続を確認。sw02 配下の該当ポート状態を `show interfaces status` / `show power inline` で特定。
-- **(必須) sw02 syslog 不到達の解消** — sw02 → CT 200 (192.168.11.2) tcp 601 に設定済みだが Loki に届いていない。CT 200 で `tcpdump -i any port 601` で到達確認、sw02 で `show logging` で送信状況確認。監視盲点になっている。
-- **(必須) sw01 Gi 0/8 48 分間ダウンの根本原因特定** — 明示的な shutdown ログなし。PoE 過電流・ケーブル不良・STP/Storm-Control などを順に切り分け。本来 WLC は冗長化すべきポイント。
-- **(推奨) ap-161-2 の 2.4GHz Radio 0 強制 enable** — `config 802.11b enable ap-161-2`。
-- **(推奨) 7 台の Not Joined AP の棚卸し** — `show ap join stats summary all` に `24:16:9d:f3:d4:60`、`f0:1d:2d:80:52:a0`、`f0:1d:2d:81:96:e0`、`f0:1d:2d:81:ea:60`、`a4:6c:2a:3c:29:84`、`f0:1d:2d:82:e2:20`、`a4:6c:2a:64:ae:c0` あり。試験機の残骸 or 本番で落ちた AP かの切り分けが必要。
-- **(運用) クライアント側 WLAN プロファイル削除のアナウンス** — 「繋がらない場合は `netsh wlan delete profile name="…"` でプロファイル削除して再接続」を周知。特に 2026-04-20 時点で WPA3 SAE で一度接続したユーザーが対象。
-- **(恒久) AP 世代混在方針** — 次回以降、混在させる場合は最初から WPA2 PSK (AKM: PSK + PSK-SHA2、PMF Optional、FT Adaptive) を前提設計。AP3700 (Wave 1) は WPA3 で使わない。
-- **(再発防止) DFS / CleanAir ED-RRM / chan-width の会場プリセット** — W56 除外、chan-width ≤ 40MHz、ED-RRM 無効を VyOS/WLC のイベント用テンプレートとして標準化。
+> 恒久対応の方針と運用上の申し送りの記録。
+
+- **(運用) クライアント側 WLAN プロファイル削除の周知** — WPA3 SAE で一度接続したユーザー (2026-04-20 時点) は旧プロファイルが残存し得る。「繋がらない場合は `netsh wlan delete profile name="…"` でプロファイル削除して再接続」を案内する運用とする。
+- **(恒久) AP 世代混在方針** — 混在運用時は最初から WPA2 PSK (AKM: PSK + PSK-SHA2、PMF Optional、FT Adaptive) を前提とする設計。AP3700 (Wave 1) は WPA3 では使わない。
+- **(再発防止) DFS / CleanAir ED-RRM / chan-width の会場プリセット** — W56 除外・chan-width ≤ 40MHz・ED-RRM 無効を VyOS/WLC のイベント用テンプレートとして標準化する方針。
 
 ## 学び
 
