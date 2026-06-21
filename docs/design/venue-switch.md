@@ -156,6 +156,8 @@ IPv6 マルチキャストの L2 フラッディングを制限する。IGMP Sno
 
 **効果**: DAD の Solicited-Node マルチキャストが全ポートにフラッディングされるのを防止。
 
+> **⚠️ 「全スイッチで有効化必須」の例外 (2026-04-19 インシデント由来)**: 古いスイッチ (IOS 15 系、古い Allied Telesis 等) は MLD snooping が RFC 4541 §3 非準拠で、有効化すると RA (`ff02::1`) / NS (solicited-node) を drop し IPv6 が通らなくなる。**準拠機 (IOS XE 17.x 等) は有効のまま・非準拠機は `no ipv6 mld snooping` で無効化** が正しい方針。また上記「スイッチ側で MLD Querier を有効化」は **非準拠機では逆効果** (constraining を点火し悪化) なので適用しない。詳細・コマンド・判断指針: [`../operations/mld-snooping-rfc4541-compliance.md`](../operations/mld-snooping-rfc4541-compliance.md)、[`../operations/incident-2026-04-19-ipv6-mld-snooping.md`](../operations/incident-2026-04-19-ipv6-mld-snooping.md)。
+
 > **RA Guard について**: 不正 RA 対策は **WLC および AP 側で実施する** (SSID ごとの設定)。スイッチ側では RA Guard を設定しない。有線端末からの不正 RA は r3-vyos の IPv6 ファイアウォールで drop する。
 
 ### 6.2 マルチキャスト→ユニキャスト変換 (Wi-Fi)

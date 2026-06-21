@@ -38,6 +38,8 @@
 ### 機種別の注意
 
 - **Cisco ISR 1100 (ESM)**: MLD Snooping の ESM 対応は文書上不明確 — 実機で `ipv6 mld snooping ?` で確認。WAN 側 EVC + bridge-domain では IP マルチキャスト非サポート
+- **MLD Snooping 無効化 (Cisco)**: グローバル `no ipv6 mld snooping` / VLAN `no ipv6 mld snooping vlan <id>` (**VLAN 単位もグローバルコンフィグから**打つ点に注意)。IOS 15.2 / IOS XE 16.12 / 17.x で同一構文。グローバル無効化で全 VLAN 無効になる。確認は `show ipv6 mld snooping`。
+- **⚠️ 古いスイッチの RFC 4541 §3 非準拠**: IOS 15 系・古い Allied Telesis 等は MLD snooping 有効時に RA (`ff02::1`) / NS (solicited-node) を drop することがある。**準拠機は ON のまま・非準拠機だけ `no ipv6 mld snooping`** が方針。詳細・判断指針・検証手順は [`mld-snooping-rfc4541-compliance.md`](./mld-snooping-rfc4541-compliance.md) を参照。
 
 ## 関連
 
