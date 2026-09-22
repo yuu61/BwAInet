@@ -5,7 +5,7 @@
 会場ネットワーク (VLAN 30/40) の IPv6 通信比率が想定 (Cloudflare Radar 比 30〜40%) に対して異常に低く、調査の結果、特定スイッチ配下のクライアントで GUA 取得不能、または GUA 取得後も実通信できない問題が判明した。
 
 | 項目 | 内容 |
-|---|---|
+| --- | --- |
 | 検知日時 | 2026-04-19 (NetFlow 集計時の比率乖離から発覚) |
 | 影響範囲 | VLAN 30 / 40 のうち IOS 15 系および Allied Telesis スイッチ配下の有線クライアント、およびその下に接続された AP 配下の無線クライアント |
 | 影響内容 | IPv6 GUA が付与されない / 付与されても外部と通信できない |
@@ -34,11 +34,12 @@
 RFC 4541 §3 では link-local scope (`ff02::/16`) を MLD snooping の対象から除外することが推奨されているが、IOS 15 系や古い Allied Telesis スイッチではこれが守られていない。
 
 | パケット | 宛先 multicast | 古いスイッチでの挙動 |
-|---|---|---|
+| --- | --- | --- |
 | RA (Router Advertisement) | `ff02::1` (all-nodes) | 実装により通る場合と drop する場合あり |
 | NS (Neighbor Solicitation) | `ff02::1:ffXX:XXXX` (solicited-node) | snooping 学習対象外で drop されやすい |
 
 これにより:
+
 - access port で RA が drop されるパターン → クライアントが GUA を取得できない
 - RA は通るが NS が drop されるパターン → GUA は付くが GW MAC を解決できず通信不能
 
@@ -47,7 +48,7 @@ RFC 4541 §3 では link-local scope (`ff02::/16`) を MLD snooping の対象か
 r3 の RA 設定では本来 OPTAGE 側を優先 (preferred=14400) にする方針だが、実機では逆転していた。
 
 | Prefix | 期待値 (memory) | 実機初期値 |
-|---|---|---|
+| --- | --- | --- |
 | OPTAGE (2600:1900:41d1:92::/64) | preferred 14400s | preferred **1800s** |
 | GCP (2001:ce8:180:5a79::/64) | preferred 1800s | デフォルト (14400s) |
 
@@ -56,7 +57,7 @@ OPTAGE GUA が早期に deprecated になり、クライアントは GCP 経由 
 ## 対応経緯 (UTC)
 
 | 時刻 | 出来事 |
-|---|---|
+| --- | --- |
 | 08:25 | NetFlow 集計で v6 比率 8% を確認 |
 | 08:35 | NDP 偏り (OPTAGE 24 / GCP 113) 確認 |
 | 08:40 | r3 RA 設定で lifetime 逆転を発見 |
@@ -89,4 +90,3 @@ Cisco config guide と RFC 4541 原文を精査した結果。詳細・コマン
 - **一次原因の記述精緻化**: 本文 (一次原因) は「RFC 4541 §3 が link-local scope (`ff02::/16`) の除外を推奨」と書いたが、**§3 が常時 flood を名指しで義務づけるのは `ff02::1` (all-nodes) のみ**。solicited-node (`ff02::1:ffXX:XXXX`) や `ff02::/16` 全体は RFC 上の明示例外ではない。これは本インシデントの 2 故障モード (RA drop = `ff02::1` の §3 違反 / NS drop = RFC が守らない solicited-node 領域) に対応する。
 - **メカニズム**: 古い Catalyst は mrouter ポート発見後に「unknown マルチキャスト」を mrouter 方向のみへ絞る。ホストは `ff02::1` の MLD report を出さないため `ff02::1` は常に unknown 扱いになり、準拠機の `ff02::1` 特例化が無い古い機ではホストポートに RA が届かない。**⚠️ 非準拠機で MLD querier を有効化すると constraining を点火し悪化する** (`venue-switch.md` §6.1 の「スイッチ側で querier 有効化」方針は非準拠機には適用しない)。
 - **`no ipv6 mld snooping` は唯一解ではない**: 正しく実装されたスイッチは snooping ON のまま `ff02::1` を素通しする (17.15 が素で通ったのがその証拠)。無効化は **非準拠機に限った敗北処理**で、本筋はファーム更新 / 準拠機への統一。
-- **「IOS-XE 17.25」表記を 17.15 に修正** (17.25 は実在しない train)。
