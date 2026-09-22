@@ -12,7 +12,7 @@ BwAI in Kwansai 2026 のイベント会場ネットワークインフラの設�
   - r3-venue (会場, AS65001): VyOS VM on Proxmox VE (Minisforum MS-01)
   - r2-gcp (GCP, AS64512): GCE 上の VyOS (e2-micro, 大阪リージョン) トランジットルーター
   - 会場上流 (blackbox): 会場設備・管理外
-- **VPN**: WireGuard フルメッシュ (r1/r3/r2-gcp)。プロキシ回避時は wstunnel over WebSocket/TLS (VyOS 上の podman コンテナ)
+- **VPN**: WireGuard フルメッシュ (r1/r3/r2-gcp)。wstunnel over WebSocket/TLS (VyOS 上の podman コンテナ) を保険として併設 (WG/IPsec とも会場上流の通過実績あり、常用は WG)
 - **ルーティング**: eBGP フルメッシュ。通常は r1↔r3 直接、障害時は r2-gcp 経由にフォールバック (AS path で自然選択、local-preference で微調整)
 - **VLAN**: 11 (mgmt, v4 only), 30 (staff+live, v4+v6), 40 (user, v4+v6)。VLAN 30/40 は同一 /64 を共有
 - **IPv6**: OPTAGE /64 (r1 DHCPv6-PD 由来) と GCP /64 (venue-v6-transit サブネット) の 2 プレフィックスを VLAN 30/40 で同時 RA 広告。r3 の source-based PBR で src prefix に応じて出口振り分け (OPTAGE src → wg0→r1、GCP src → wg1→r2-gcp→NAT66)。自宅 LAN は v4 only
@@ -54,8 +54,8 @@ shumoku/                 # ネットワーク図/トポロジ定義 (network.yam
 
 ## ネットワーク設計のポイント
 
-- 会場上流がプロキシ環境のため、全トラフィックを WireGuard トンネルで自宅経由に迂回
-- プロキシ解除不可時は wstunnel (WSS/TCP 443) にフォールバック、上位は常に wg0 で統一
+- 全トラフィックを WireGuard トンネルで自宅経由に迂回し、会場設備に依存しない自前経路を確保
+- **会場上流のプロキシ通過は WG/IPsec とも実績済み＝設計上のブロッカーにしない**。wstunnel (WSS/TCP 443) は worst-case の保険として保持、上位は常に wg0 で統一
 - WireGuard MTU は 1400 に統一 (GCP VPC MTU 1460 がボトルネック)、MSS clamping 併用
 - IPv6 デュアルプレフィックス RA: OPTAGE /64 (preferred=14400s、優先) + GCP /64 (preferred=1800s)。VLAN 30/40 で同一 /64 を共有。OPTAGE プレフィックスは r1 の WAN で DHCPv6-PD 受信 → `scripts/pd-update-venue.sh` (r1 の task-scheduler 1分間隔) が変更検知して r3 の VyOS API に push して eth2.30/40 アドレスと RA 設定を更新。GCP プレフィックスは r2 の GCP 固定 /64 を r3 に静的配置
 - IPv4 は dst ベース (goog.json を BGP 広告)、IPv6 は src ベース PBR で振り分け。v6 で goog BGP 広告しない理由は非対称ルーティングで NAT66 conntrack が破綻するため
